@@ -16,6 +16,26 @@
 #include <QSyntaxHighlighter>
 
 namespace {
+QChar closingCharacterFor(const QChar opening)
+{
+    switch (opening.unicode()) {
+    case '(': return QLatin1Char(')');
+    case '[': return QLatin1Char(']');
+    case '{': return QLatin1Char('}');
+    case '\'': return QLatin1Char('\'');
+    case '"': return QLatin1Char('"');
+    case '`': return QLatin1Char('`');
+    default: return {};
+    }
+}
+
+bool isClosingCharacter(const QChar character)
+{
+    return character == QLatin1Char(')') || character == QLatin1Char(']')
+        || character == QLatin1Char('}') || character == QLatin1Char('\'')
+        || character == QLatin1Char('"') || character == QLatin1Char('`');
+}
+
 class LineNumberArea final : public QWidget
 {
 public:
@@ -351,16 +371,81 @@ void CodeEditor::keyPressEvent(QKeyEvent *event)
         return;
     }
 
+    const bool hasCommandModifier = event->modifiers().testFlag(Qt::ControlModifier)
+        || event->modifiers().testFlag(Qt::AltModifier)
+        || event->modifiers().testFlag(Qt::MetaModifier);
+    if (!hasCommandModifier && event->key() == Qt::Key_Backspace) {
+        QTextCursor cursor = textCursor();
+        if (!cursor.hasSelection() && cursor.position() > 0
+            && cursor.position() < document()->characterCount() - 1) {
+            const QString contents = toPlainText();
+            const QChar opening = contents.at(cursor.position() - 1);
+            const QChar closing = contents.at(cursor.position());
+            if (!closingCharacterFor(opening).isNull()
+                && closingCharacterFor(opening) == closing) {
+                cursor.beginEditBlock();
+                cursor.deletePreviousChar();
+                cursor.deleteChar();
+                cursor.endEditBlock();
+                setTextCursor(cursor);
+                m_completionDismissed = false;
+                updateInlineCompletion();
+                event->accept();
+                return;
+            }
+        }
+    }
+
+    if (!hasCommandModifier && event->text().size() == 1) {
+        const QChar typed = event->text().front();
+        QTextCursor cursor = textCursor();
+        const QString contents = toPlainText();
+        const bool closingAhead = !cursor.hasSelection()
+            && cursor.position() < contents.size()
+            && contents.at(cursor.position()) == typed;
+        if (isClosingCharacter(typed) && closingAhead) {
+            cursor.movePosition(QTextCursor::Right);
+            setTextCursor(cursor);
+            m_completer->popup()->hide();
+            updateInlineCompletion();
+            event->accept();
+            return;
+        }
+
+        const QChar closing = closingCharacterFor(typed);
+        if (!closing.isNull()) {
+            const int selectionStart = cursor.selectionStart();
+            const QString selected = cursor.selectedText();
+            cursor.beginEditBlock();
+            cursor.insertText(QString(typed) + selected + QString(closing));
+            cursor.endEditBlock();
+            if (selected.isEmpty()) {
+                cursor.movePosition(QTextCursor::Left);
+            } else {
+                cursor.setPosition(selectionStart + 1);
+                cursor.setPosition(selectionStart + 1 + selected.size(), QTextCursor::KeepAnchor);
+            }
+            setTextCursor(cursor);
+            m_completer->popup()->hide();
+            m_completionDismissed = false;
+            updateInlineCompletion();
+            event->accept();
+            return;
+        }
+    }
+
     QPlainTextEdit::keyPressEvent(event);
-    if (!event->text().isEmpty() || event->key() == Qt::Key_Backspace
-        || event->key() == Qt::Key_Delete) {
+    const bool deletionKey = event->key() == Qt::Key_Backspace
+        || event->key() == Qt::Key_Delete;
+    if (!event->text().isEmpty() || deletionKey) {
         m_completionDismissed = false;
     }
     updateInlineCompletion();
-    if (!m_completionDismissed && !event->text().isEmpty()) {
-        const QChar typed = event->text().front();
-        if ((typed.isLetterOrNumber() || typed == QLatin1Char('_'))
-            && !currentWordPrefix().isEmpty()) showCompletionPopup();
+    if (!m_completionDismissed && !currentWordPrefix().isEmpty()) {
+        const bool typedIdentifier = !event->text().isEmpty()
+            && (event->text().front().isLetterOrNumber()
+                || event->text().front() == QLatin1Char('_'));
+        if (typedIdentifier || deletionKey) showCompletionPopup();
     }
 }
 

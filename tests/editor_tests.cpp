@@ -9,6 +9,7 @@
 #include <QAction>
 #include <QFileInfo>
 #include <QFileSystemModel>
+#include <QCompleter>
 #include <QTabWidget>
 #include <QTemporaryDir>
 #include <QSignalSpy>
@@ -44,6 +45,8 @@ private slots:
     void languagePluginsDetectErrors();
     void editorAcceptsInlineCompletion();
     void analysisRefreshKeepsCompletionOpen();
+    void backspaceRestoresCompletionSuggestions();
+    void autoClosesAndRemovesPairs();
     void problemsPanelTracksDiagnostics();
 };
 
@@ -333,6 +336,63 @@ void EditorTests::analysisRefreshKeepsCompletionOpen()
     QTest::qWait(350);
     QVERIFY(editor->completionPopupVisible());
     QCOMPARE(editor->inlineCompletion(), QStringLiteral("nt"));
+}
+
+void EditorTests::backspaceRestoresCompletionSuggestions()
+{
+    CodeEditor editor;
+    editor.setCompletionItems({QStringLiteral("print"), QStringLiteral("property")});
+    editor.show();
+    editor.setFocus();
+    QCoreApplication::processEvents();
+    auto *completer = editor.findChild<QCompleter *>();
+    QVERIFY(completer != nullptr);
+
+    QTest::keyClicks(&editor, QStringLiteral("prix"));
+    QVERIFY(!editor.completionPopupVisible());
+    QTest::keyClick(&editor, Qt::Key_Backspace);
+    QVERIFY(editor.completionPopupVisible());
+    QCOMPARE(editor.inlineCompletion(), QStringLiteral("nt"));
+    QCOMPARE(completer->completionCount(), 1);
+
+    QTest::keyClick(&editor, Qt::Key_Backspace);
+    QVERIFY(editor.completionPopupVisible());
+    QCOMPARE(editor.inlineCompletion(), QStringLiteral("int"));
+    QCOMPARE(completer->completionCount(), 2);
+}
+
+void EditorTests::autoClosesAndRemovesPairs()
+{
+    CodeEditor editor;
+    editor.show();
+    editor.setFocus();
+    QCoreApplication::processEvents();
+
+    QTest::keyClick(&editor, Qt::Key_ParenLeft);
+    QCOMPARE(editor.toPlainText(), QStringLiteral("()"));
+    QCOMPARE(editor.textCursor().position(), 1);
+    QTest::keyClick(&editor, Qt::Key_ParenRight);
+    QCOMPARE(editor.toPlainText(), QStringLiteral("()"));
+    QCOMPARE(editor.textCursor().position(), 2);
+
+    editor.clear();
+    QTest::keyClick(&editor, Qt::Key_BracketLeft);
+    QCOMPARE(editor.toPlainText(), QStringLiteral("[]"));
+    QTest::keyClick(&editor, Qt::Key_Backspace);
+    QVERIFY(editor.toPlainText().isEmpty());
+
+    QTest::keyClick(&editor, Qt::Key_QuoteDbl);
+    QCOMPARE(editor.toPlainText(), QStringLiteral("\"\""));
+    QCOMPARE(editor.textCursor().position(), 1);
+    QTest::keyClick(&editor, Qt::Key_QuoteDbl);
+    QCOMPARE(editor.toPlainText(), QStringLiteral("\"\""));
+    QCOMPARE(editor.textCursor().position(), 2);
+
+    editor.setPlainText(QStringLiteral("value"));
+    editor.selectAll();
+    QTest::keyClick(&editor, Qt::Key_BraceLeft);
+    QCOMPARE(editor.toPlainText(), QStringLiteral("{value}"));
+    QCOMPARE(editor.textCursor().selectedText(), QStringLiteral("value"));
 }
 
 void EditorTests::problemsPanelTracksDiagnostics()
