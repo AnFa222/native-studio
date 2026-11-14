@@ -1,0 +1,26 @@
+# Local dependencies and build products
+/work/
+/outputs/
+/build/
+/cmake-build-*/
+/aqtinstall.log
+
+# CMake and IDE state
+CMakeUserPresets.json
+.vs/
+.vscode/
+*.user
+*.suo
+
+# Native build products
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.dll
+*.exe
+
+# OS metadata
+.DS_Store
+Thumbs.db
