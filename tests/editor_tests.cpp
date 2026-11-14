@@ -20,6 +20,9 @@
 #include <QTextCharFormat>
 #include <QTextDocument>
 #include <QTextLayout>
+#include <QTreeWidget>
+
+#include <algorithm>
 
 class EditorTests final : public QObject
 {
@@ -37,6 +40,10 @@ private slots:
     void runActionTracksSupportedFile();
     void lineNumberGutterTracksDocument();
     void pluginExplorerHasMarketplaceControls();
+    void languagePluginsProvideCompletions();
+    void languagePluginsDetectErrors();
+    void editorAcceptsInlineCompletion();
+    void problemsPanelTracksDiagnostics();
 };
 
 void EditorTests::startsWithOneUntitledEditor()
@@ -231,6 +238,73 @@ void EditorTests::pluginExplorerHasMarketplaceControls()
     QVERIFY(refresh != nullptr);
     QCOMPARE(table->columnCount(), 5);
     QVERIFY(table->rowCount() >= 2);
+}
+
+void EditorTests::languagePluginsProvideCompletions()
+{
+    MainWindow window;
+    const auto pythonItems = window.languageManager()->completionItems(
+        QStringLiteral("example.py"), QStringLiteral("def custom_symbol():\n    pri"));
+    QVERIFY(pythonItems.contains(QStringLiteral("print")));
+    QVERIFY(pythonItems.contains(QStringLiteral("custom_symbol")));
+
+    const auto cppItems = window.languageManager()->completionItems(
+        QStringLiteral("example.cpp"), QStringLiteral("struct CustomWidget {};\nconste"));
+    QVERIFY(cppItems.contains(QStringLiteral("constexpr")));
+    QVERIFY(cppItems.contains(QStringLiteral("CustomWidget")));
+}
+
+void EditorTests::languagePluginsDetectErrors()
+{
+    MainWindow window;
+    const auto pythonProblems = window.languageManager()->diagnostics(
+        QStringLiteral("broken.py"), QStringLiteral("def greet()\n    print('hello')\n"));
+    QVERIFY(!pythonProblems.isEmpty());
+    QVERIFY(std::any_of(pythonProblems.cbegin(), pythonProblems.cend(), [](const auto &problem) {
+        return problem.message.contains(QStringLiteral("Expected ':'"));
+    }));
+
+    const auto cppProblems = window.languageManager()->diagnostics(
+        QStringLiteral("broken.cpp"), QStringLiteral("int main() {\n    return 0;\n"));
+    QVERIFY(!cppProblems.isEmpty());
+    QVERIFY(std::any_of(cppProblems.cbegin(), cppProblems.cend(), [](const auto &problem) {
+        return problem.message.contains(QStringLiteral("Unclosed"));
+    }));
+}
+
+void EditorTests::editorAcceptsInlineCompletion()
+{
+    CodeEditor editor;
+    editor.setCompletionItems({QStringLiteral("print")});
+    editor.setPlainText(QStringLiteral("pri"));
+    QTextCursor cursor = editor.textCursor();
+    cursor.movePosition(QTextCursor::End);
+    editor.setTextCursor(cursor);
+    editor.show();
+    editor.setFocus();
+    QCoreApplication::processEvents();
+
+    QCOMPARE(editor.inlineCompletion(), QStringLiteral("nt"));
+    QTest::keyClick(&editor, Qt::Key_Tab);
+    QCOMPARE(editor.toPlainText(), QStringLiteral("print"));
+}
+
+void EditorTests::problemsPanelTracksDiagnostics()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString path = directory.filePath(QStringLiteral("broken.py"));
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("def broken()\n    pass\n");
+    file.close();
+
+    MainWindow window;
+    window.openFile(path);
+    auto *problems = window.findChild<QTreeWidget *>(QStringLiteral("problemsTree"));
+    QVERIFY(problems != nullptr);
+    QVERIFY(problems->topLevelItemCount() > 0);
+    QVERIFY(problems->topLevelItem(0)->text(2).contains(QStringLiteral("Expected ':'")));
 }
 
 QTEST_MAIN(EditorTests)

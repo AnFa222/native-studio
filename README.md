@@ -10,6 +10,12 @@ Use **Plugins > Rescan Language Plugins** after copying a new plugin into that d
 
 Use **Plugins > Plugin Explorer** to browse and search language plugins published on the [Native Studio GitHub releases page](https://github.com/AnFa222/native-studio/releases). The explorer automatically checks the latest public release and shows which plugins are available, installed, or ready to update. Installation, removal, and updates are safely applied after restarting because Windows cannot replace a loaded DLL.
 
+## Language intelligence
+
+Completion and diagnostics are supplied by each language plugin rather than the editor core. The included Python and C++ plugins provide language keywords, built-ins and symbols found in the current document. Suggestions appear as inline ghost text and in a native popup; press **Tab** to accept the inline suggestion or **Ctrl+Space** to request the list.
+
+Both plugins also provide live syntax diagnostics. Errors and warnings use colored squiggles and line-number markers, show details on hover, and appear in **View > Problems**. The Python provider checks delimiters, strings, required colons, and mixed indentation. The C++ provider checks delimiters, strings, comments, and preprocessor conditionals.
+
 ## Running and terminal
 
 The detected language plugin can provide a native run configuration. The Python plugin runs `.py`, `.pyw`, and `.pyi` files with the platform Python launcher. Choose **Run > Run Current File** or press **Ctrl+F5**. Output appears in the integrated terminal.

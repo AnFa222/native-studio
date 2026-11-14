@@ -58,7 +58,9 @@ QStringList extensionsForAsset(const QString &fileName)
 {
     if (fileName.compare(QStringLiteral("language_cpp.dll"), Qt::CaseInsensitive) == 0)
         return {QStringLiteral("c"), QStringLiteral("cc"), QStringLiteral("cpp"),
-                QStringLiteral("cxx"), QStringLiteral("h"), QStringLiteral("hpp")};
+                QStringLiteral("cxx"), QStringLiteral("h"), QStringLiteral("hh"),
+                QStringLiteral("hpp"), QStringLiteral("hxx"), QStringLiteral("ixx"),
+                QStringLiteral("cppm")};
     if (fileName.compare(QStringLiteral("language_python.dll"), Qt::CaseInsensitive) == 0)
         return {QStringLiteral("py"), QStringLiteral("pyw"), QStringLiteral("pyi")};
     return {};
@@ -67,9 +69,9 @@ QStringList extensionsForAsset(const QString &fileName)
 QString descriptionForAsset(const QString &fileName)
 {
     if (fileName.compare(QStringLiteral("language_cpp.dll"), Qt::CaseInsensitive) == 0)
-        return QStringLiteral("C and C++ syntax highlighting and file detection.");
+        return QStringLiteral("C and C++ highlighting, completion, and live syntax diagnostics.");
     if (fileName.compare(QStringLiteral("language_python.dll"), Qt::CaseInsensitive) == 0)
-        return QStringLiteral("Python highlighting, file detection, and native file runner.");
+        return QStringLiteral("Python highlighting, completion, diagnostics, and native file runner.");
     return QStringLiteral("Native language support plugin from the Native Studio GitHub release.");
 }
 

@@ -14,4 +14,6 @@ public:
     [[nodiscard]] QString languageName() const override;
     [[nodiscard]] QStringList fileExtensions() const override;
     QSyntaxHighlighter *createHighlighter(QTextDocument *document) override;
+    [[nodiscard]] QStringList completionItems(const QString &documentText) const override;
+    [[nodiscard]] QList<CodeDiagnostic> diagnostics(const QString &documentText) const override;
 };

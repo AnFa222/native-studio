@@ -9,6 +9,7 @@ class LanguageManager;
 class ProjectExplorer;
 class QDockWidget;
 class QTabWidget;
+class QTreeWidget;
 class TerminalWidget;
 class QTreeView;
 
@@ -53,6 +54,8 @@ private:
     void createActions();
     void applyTheme();
     void updateRunAction();
+    void updateLanguageFeatures(CodeEditor *editor);
+    void updateProblems(CodeEditor *editor);
     [[nodiscard]] static QIcon createRunIcon();
 
     QTabWidget *m_tabs = nullptr;
@@ -60,6 +63,8 @@ private:
     LanguageManager *m_languageManager = nullptr;
     TerminalWidget *m_terminal = nullptr;
     QDockWidget *m_terminalDock = nullptr;
+    QDockWidget *m_problemsDock = nullptr;
+    QTreeWidget *m_problemsTree = nullptr;
     QAction *m_runAction = nullptr;
     QString m_projectDirectory;
 };

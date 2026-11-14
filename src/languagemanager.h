@@ -39,6 +39,10 @@ public:
     [[nodiscard]] QSyntaxHighlighter *createHighlighter(const QString &filePath,
                                                         QTextDocument *document) const;
     [[nodiscard]] RunConfiguration runConfiguration(const QString &filePath) const;
+    [[nodiscard]] QStringList completionItems(const QString &filePath,
+                                              const QString &documentText) const;
+    [[nodiscard]] QList<CodeDiagnostic> diagnostics(const QString &filePath,
+                                                    const QString &documentText) const;
     [[nodiscard]] static QString userPluginDirectory();
     static void applyPendingOperations();
 

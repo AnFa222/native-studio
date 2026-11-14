@@ -12,14 +12,19 @@
 #include <QDockWidget>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QHeaderView>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QPainter>
 #include <QPixmap>
 #include <QStatusBar>
 #include <QTabWidget>
+#include <QTextBlock>
+#include <QTextCursor>
+#include <QTimer>
 #include <QToolBar>
 #include <QTreeView>
+#include <QTreeWidget>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -38,7 +43,10 @@ MainWindow::MainWindow(QWidget *parent)
     m_tabs->setDocumentMode(true);
     setCentralWidget(m_tabs);
     connect(m_tabs, &QTabWidget::tabCloseRequested, this, &MainWindow::closeTab);
-    connect(m_tabs, &QTabWidget::currentChanged, this, [this] { updateRunAction(); });
+    connect(m_tabs, &QTabWidget::currentChanged, this, [this] {
+        updateRunAction();
+        updateProblems(currentEditor());
+    });
 
     connect(m_projectExplorer, &ProjectExplorer::fileActivated, this, &MainWindow::openFile);
 
@@ -53,6 +61,35 @@ MainWindow::MainWindow(QWidget *parent)
     m_terminalDock->setWidget(m_terminal);
     m_terminalDock->setMinimumHeight(160);
     addDockWidget(Qt::BottomDockWidgetArea, m_terminalDock);
+
+    m_problemsTree = new QTreeWidget(this);
+    m_problemsTree->setObjectName(QStringLiteral("problemsTree"));
+    m_problemsTree->setColumnCount(3);
+    m_problemsTree->setHeaderLabels({tr("Severity"), tr("Location"), tr("Message")});
+    m_problemsTree->setRootIsDecorated(false);
+    m_problemsTree->setAlternatingRowColors(true);
+    m_problemsTree->header()->setStretchLastSection(true);
+    m_problemsTree->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    m_problemsTree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    m_problemsDock = new QDockWidget(tr("PROBLEMS"), this);
+    m_problemsDock->setObjectName(QStringLiteral("problemsDock"));
+    m_problemsDock->setWidget(m_problemsTree);
+    m_problemsDock->setMinimumHeight(140);
+    addDockWidget(Qt::BottomDockWidgetArea, m_problemsDock);
+    tabifyDockWidget(m_terminalDock, m_problemsDock);
+    m_problemsDock->hide();
+    connect(m_problemsTree, &QTreeWidget::itemActivated, this,
+            [this](QTreeWidgetItem *item) {
+        auto *editor = currentEditor();
+        if (!editor || !item) return;
+        const QTextBlock block = editor->document()->findBlockByNumber(
+            item->data(0, Qt::UserRole).toInt());
+        if (!block.isValid()) return;
+        QTextCursor cursor(block);
+        cursor.setPosition(block.position() + item->data(1, Qt::UserRole).toInt());
+        editor->setTextCursor(cursor);
+        editor->setFocus();
+    });
 
     createActions();
     applyTheme();
@@ -110,6 +147,7 @@ void MainWindow::createActions()
     pluginsMenu->addAction(tr("Rescan Language Plugins"), this, &MainWindow::reloadLanguagePlugins);
     runMenu->addAction(m_runAction);
     viewMenu->addAction(m_terminalDock->toggleViewAction());
+    viewMenu->addAction(m_problemsDock->toggleViewAction());
 }
 
 void MainWindow::applyTheme()
@@ -146,6 +184,10 @@ void MainWindow::applyTheme()
         QLabel#pluginExplorerStatus { color: #8b949e; padding: 2px; }
         QTableWidget#pluginTable { background: #0d1117; alternate-background-color: #161b22; color: #c9d1d9; border: 1px solid #30363d; gridline-color: #21262d; selection-background-color: #1f6feb; selection-color: #ffffff; }
         QTableWidget#pluginTable::item { padding: 6px; }
+        QTreeWidget#problemsTree { background: #0d1117; alternate-background-color: #161b22; color: #c9d1d9; border: 0; outline: 0; selection-background-color: #1f6feb; selection-color: #ffffff; }
+        QTreeWidget#problemsTree::item { padding: 5px; }
+        QAbstractItemView#completionPopup { background: #161b22; color: #c9d1d9; border: 1px solid #484f58; selection-background-color: #1f6feb; selection-color: #ffffff; }
+        QToolTip { background: #21262d; color: #e6edf3; border: 1px solid #484f58; padding: 5px; }
         QHeaderView::section { background: #21262d; color: #8b949e; border: 0; border-right: 1px solid #30363d; border-bottom: 1px solid #30363d; padding: 7px; font-weight: 600; }
         QPushButton { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 4px; padding: 6px 12px; }
         QPushButton:hover { background: #30363d; color: #ffffff; }
@@ -182,6 +224,13 @@ CodeEditor *MainWindow::addEditor(const QString &title)
             [this, editor] { updateTabTitle(editor); });
     connect(editor, &CodeEditor::cursorPositionDescriptionChanged,
             statusBar(), [this](const QString &message) { statusBar()->showMessage(message); });
+    auto *analysisTimer = new QTimer(editor);
+    analysisTimer->setSingleShot(true);
+    analysisTimer->setInterval(220);
+    connect(editor, &QPlainTextEdit::textChanged, analysisTimer,
+            [analysisTimer] { analysisTimer->start(); });
+    connect(analysisTimer, &QTimer::timeout, this,
+            [this, editor] { updateLanguageFeatures(editor); });
     editor->setFocus();
     updateRunAction();
     return editor;
@@ -249,6 +298,7 @@ void MainWindow::openFile(const QString &path)
         return;
     }
     editor->setSyntaxHighlighter(m_languageManager->createHighlighter(path, editor->document()));
+    updateLanguageFeatures(editor);
     updateTabTitle(editor);
     updateRunAction();
     statusBar()->showMessage(tr("%1 — %2")
@@ -285,6 +335,7 @@ bool MainWindow::saveEditor(CodeEditor *editor, bool forceDialog)
         return false;
     }
     editor->setSyntaxHighlighter(m_languageManager->createHighlighter(path, editor->document()));
+    updateLanguageFeatures(editor);
     updateTabTitle(editor);
     updateRunAction();
     statusBar()->showMessage(tr("Saved %1").arg(QDir::toNativeSeparators(path)), 3000);
@@ -297,8 +348,52 @@ bool MainWindow::saveCurrentFileAs() { return saveEditor(currentEditor(), true);
 void MainWindow::reloadLanguagePlugins()
 {
     const int loaded = m_languageManager->loadDefaultPlugins();
+    for (int index = 0; index < m_tabs->count(); ++index)
+        updateLanguageFeatures(editorAt(index));
     statusBar()->showMessage(tr("Loaded %1 new plugin(s); %2 language(s) available")
                                  .arg(loaded).arg(m_languageManager->languages().size()), 4000);
+}
+
+void MainWindow::updateLanguageFeatures(CodeEditor *editor)
+{
+    if (!editor) return;
+    if (editor->filePath().isEmpty()) {
+        editor->setCompletionItems({});
+        editor->setDiagnostics({});
+    } else {
+        const QString source = editor->toPlainText();
+        editor->setCompletionItems(
+            m_languageManager->completionItems(editor->filePath(), source));
+        editor->setDiagnostics(
+            m_languageManager->diagnostics(editor->filePath(), source));
+    }
+    if (editor == currentEditor()) updateProblems(editor);
+}
+
+void MainWindow::updateProblems(CodeEditor *editor)
+{
+    if (!m_problemsTree || !m_problemsDock) return;
+    m_problemsTree->clear();
+    int errors = 0;
+    int warnings = 0;
+    if (editor) {
+        for (const auto &problem : editor->diagnostics()) {
+            const bool isError = problem.severity == DiagnosticSeverity::Error;
+            isError ? ++errors : ++warnings;
+            auto *item = new QTreeWidgetItem(m_problemsTree);
+            item->setText(0, isError ? tr("Error") : tr("Warning"));
+            item->setText(1, tr("%1:%2").arg(problem.line + 1).arg(problem.column + 1));
+            item->setText(2, problem.message);
+            item->setData(0, Qt::UserRole, problem.line);
+            item->setData(1, Qt::UserRole, problem.column);
+            item->setForeground(0, isError ? QColor(QStringLiteral("#f85149"))
+                                           : QColor(QStringLiteral("#d29922")));
+        }
+    }
+    const int total = errors + warnings;
+    m_problemsDock->setWindowTitle(total == 0 ? tr("PROBLEMS")
+                                              : tr("PROBLEMS (%1)").arg(total));
+    m_problemsTree->setToolTip(tr("%1 error(s), %2 warning(s)").arg(errors).arg(warnings));
 }
 
 void MainWindow::managePlugins()

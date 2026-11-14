@@ -120,6 +120,20 @@ RunConfiguration LanguageManager::runConfiguration(const QString &filePath) cons
     return plugin ? plugin->runConfiguration(filePath) : RunConfiguration{};
 }
 
+QStringList LanguageManager::completionItems(const QString &filePath,
+                                             const QString &documentText) const
+{
+    const auto *plugin = m_byExtension.value(QFileInfo(filePath).suffix().toLower(), nullptr);
+    return plugin ? plugin->completionItems(documentText) : QStringList{};
+}
+
+QList<CodeDiagnostic> LanguageManager::diagnostics(const QString &filePath,
+                                                   const QString &documentText) const
+{
+    const auto *plugin = m_byExtension.value(QFileInfo(filePath).suffix().toLower(), nullptr);
+    return plugin ? plugin->diagnostics(documentText) : QList<CodeDiagnostic>{};
+}
+
 QString LanguageManager::userPluginDirectory()
 {
     return QDir(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation))
