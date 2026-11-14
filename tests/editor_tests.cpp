@@ -31,6 +31,7 @@ private slots:
     void unknownLanguageUsesPlainText();
     void terminalRunsProgram();
     void runActionTracksSupportedFile();
+    void lineNumberGutterTracksDocument();
 };
 
 void EditorTests::startsWithOneUntitledEditor()
@@ -195,6 +196,18 @@ void EditorTests::runActionTracksSupportedFile()
     QVERIFY(runAction->isVisible());
     window.openFile(textPath);
     QVERIFY(!runAction->isVisible());
+}
+
+void EditorTests::lineNumberGutterTracksDocument()
+{
+    CodeEditor editor;
+    const int singleDigitWidth = editor.lineNumberAreaWidth();
+    QStringList lines;
+    for (int line = 1; line <= 120; ++line) lines.append(QStringLiteral("line %1").arg(line));
+    editor.setPlainText(lines.join(QLatin1Char('\n')));
+
+    QVERIFY(editor.findChild<QWidget *>(QStringLiteral("lineNumberArea")) != nullptr);
+    QVERIFY(editor.lineNumberAreaWidth() > singleDigitWidth);
 }
 
 QTEST_MAIN(EditorTests)
