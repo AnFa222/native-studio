@@ -43,6 +43,7 @@ private slots:
     void languagePluginsProvideCompletions();
     void languagePluginsDetectErrors();
     void editorAcceptsInlineCompletion();
+    void analysisRefreshKeepsCompletionOpen();
     void problemsPanelTracksDiagnostics();
 };
 
@@ -286,6 +287,14 @@ void EditorTests::editorAcceptsInlineCompletion()
     QTest::keyClicks(&editor, QStringLiteral("r"));
     QCOMPARE(editor.inlineCompletion(), QStringLiteral("int"));
     QVERIFY(editor.completionPopupVisible());
+
+    // Simulate the delayed plugin-analysis pass. It discovers the partial
+    // document identifier "pr", but must not collapse the active popup.
+    editor.setCompletionItems({QStringLiteral("pr"), QStringLiteral("print"),
+                               QStringLiteral("property")});
+    QCOMPARE(editor.inlineCompletion(), QStringLiteral("int"));
+    QVERIFY(editor.completionPopupVisible());
+
     QTest::keyClicks(&editor, QStringLiteral("i"));
     QCOMPARE(editor.inlineCompletion(), QStringLiteral("nt"));
     QVERIFY(editor.completionPopupVisible());
@@ -294,6 +303,36 @@ void EditorTests::editorAcceptsInlineCompletion()
     QVERIFY(editor.completionPopupVisible());
     QTest::keyClick(&editor, Qt::Key_Tab);
     QCOMPARE(editor.toPlainText(), QStringLiteral("print"));
+}
+
+void EditorTests::analysisRefreshKeepsCompletionOpen()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString path = directory.filePath(QStringLiteral("completion.py"));
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.close();
+
+    MainWindow window;
+    window.openFile(path);
+    window.show();
+    auto *editor = qobject_cast<CodeEditor *>(window.editorTabs()->currentWidget());
+    QVERIFY(editor != nullptr);
+    editor->setFocus();
+    QCoreApplication::processEvents();
+
+    QTest::keyClicks(editor, QStringLiteral("pr"));
+    QTRY_VERIFY(editor->completionPopupVisible());
+    QCOMPARE(editor->inlineCompletion(), QStringLiteral("int"));
+    QTest::qWait(350);
+    QVERIFY(editor->completionPopupVisible());
+    QCOMPARE(editor->inlineCompletion(), QStringLiteral("int"));
+
+    QTest::keyClicks(editor, QStringLiteral("i"));
+    QTest::qWait(350);
+    QVERIFY(editor->completionPopupVisible());
+    QCOMPARE(editor->inlineCompletion(), QStringLiteral("nt"));
 }
 
 void EditorTests::problemsPanelTracksDiagnostics()

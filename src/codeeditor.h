@@ -51,6 +51,7 @@ private:
     void showCompletionPopup();
     void insertCompletion(const QString &completion);
     void useCompletionCandidate(const QString &completion);
+    bool selectBestCompletion(const QString &prefix);
     [[nodiscard]] QString currentWordPrefix() const;
     [[nodiscard]] const CodeDiagnostic *diagnosticAt(int documentPosition) const;
 

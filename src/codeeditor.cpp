@@ -193,6 +193,17 @@ void CodeEditor::setCompletionItems(const QStringList &items)
     QStringList normalized = items;
     normalized.removeDuplicates();
     normalized.sort(Qt::CaseInsensitive);
+    if (normalized == m_completionModel->stringList()) {
+        updateInlineCompletion();
+        return;
+    }
+
+    // Background plugin analysis also refreshes document symbols. Replacing a
+    // QCompleter model while its popup is open closes the active session, so
+    // keep the stable vocabulary until the user accepts, dismisses, or leaves
+    // the current identifier. The next analysis pass will apply fresh symbols.
+    if (m_completer->popup()->isVisible() && !currentWordPrefix().isEmpty()) return;
+
     m_completionModel->setStringList(normalized);
     updateInlineCompletion();
 }
@@ -247,7 +258,7 @@ void CodeEditor::updateInlineCompletion()
     }
 
     m_completer->setCompletionPrefix(prefix);
-    if (m_completer->completionCount() > 0 && m_completer->setCurrentRow(0)) {
+    if (m_completer->completionCount() > 0 && selectBestCompletion(prefix)) {
         useCompletionCandidate(m_completer->currentCompletion());
     } else {
         viewport()->update();
@@ -266,7 +277,7 @@ void CodeEditor::showCompletionPopup()
         m_completer->popup()->hide();
         return;
     }
-    if (!m_completer->setCurrentRow(0)) {
+    if (!selectBestCompletion(prefix)) {
         m_completer->popup()->hide();
         return;
     }
@@ -275,6 +286,18 @@ void CodeEditor::showCompletionPopup()
     QRect area = cursorRect();
     area.setWidth(qMax(320, m_completer->popup()->sizeHintForColumn(0) + 36));
     m_completer->complete(area);
+}
+
+bool CodeEditor::selectBestCompletion(const QString &prefix)
+{
+    const int count = m_completer->completionCount();
+    for (int row = 0; row < count; ++row) {
+        if (!m_completer->setCurrentRow(row)) continue;
+        const QString candidate = m_completer->currentCompletion();
+        if (candidate.startsWith(prefix, Qt::CaseInsensitive)
+            && candidate.size() > prefix.size()) return true;
+    }
+    return count > 0 && m_completer->setCurrentRow(0);
 }
 
 void CodeEditor::useCompletionCandidate(const QString &completion)
