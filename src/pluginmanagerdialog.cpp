@@ -55,7 +55,8 @@ PluginManagerDialog::PluginManagerDialog(LanguageManager *languageManager, QWidg
     setModal(true);
 
     m_repository->setPlaceholderText(tr("owner/repository"));
-    m_repository->setText(QSettings().value(QStringLiteral("plugins/githubRepository")).toString());
+    m_repository->setText(QSettings().value(QStringLiteral("plugins/githubRepository"),
+                                             QStringLiteral("AnFa222/native-studio")).toString());
     m_repository->setToolTip(tr("GitHub repository whose latest release contains language_*.dll assets"));
 
     auto *checkButton = new QPushButton(tr("Check GitHub"), this);
