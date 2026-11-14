@@ -1,6 +1,7 @@
 #include "codeeditor.h"
 #include "languagemanager.h"
 #include "mainwindow.h"
+#include "pluginmanagerdialog.h"
 #include "projectexplorer.h"
 #include "terminalwidget.h"
 
@@ -11,6 +12,9 @@
 #include <QTabWidget>
 #include <QTemporaryDir>
 #include <QSignalSpy>
+#include <QLineEdit>
+#include <QPushButton>
+#include <QTableWidget>
 #include <QTest>
 #include <QTextBlock>
 #include <QTextCharFormat>
@@ -32,6 +36,7 @@ private slots:
     void terminalRunsProgram();
     void runActionTracksSupportedFile();
     void lineNumberGutterTracksDocument();
+    void pluginExplorerHasMarketplaceControls();
 };
 
 void EditorTests::startsWithOneUntitledEditor()
@@ -208,6 +213,24 @@ void EditorTests::lineNumberGutterTracksDocument()
 
     QVERIFY(editor.findChild<QWidget *>(QStringLiteral("lineNumberArea")) != nullptr);
     QVERIFY(editor.lineNumberAreaWidth() > singleDigitWidth);
+}
+
+void EditorTests::pluginExplorerHasMarketplaceControls()
+{
+    MainWindow window;
+    PluginManagerDialog dialog(window.languageManager());
+
+    QCOMPARE(dialog.windowTitle(), QStringLiteral("Plugin Explorer"));
+    auto *search = dialog.findChild<QLineEdit *>(QStringLiteral("pluginSearch"));
+    auto *table = dialog.findChild<QTableWidget *>(QStringLiteral("pluginTable"));
+    auto *install = dialog.findChild<QPushButton *>(QStringLiteral("installPluginButton"));
+    auto *refresh = dialog.findChild<QPushButton *>(QStringLiteral("refreshPluginCatalog"));
+    QVERIFY(search != nullptr);
+    QVERIFY(table != nullptr);
+    QVERIFY(install != nullptr);
+    QVERIFY(refresh != nullptr);
+    QCOMPARE(table->columnCount(), 5);
+    QVERIFY(table->rowCount() >= 2);
 }
 
 QTEST_MAIN(EditorTests)

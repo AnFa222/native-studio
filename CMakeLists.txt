@@ -3,7 +3,7 @@ if(POLICY CMP0141)
     cmake_policy(SET CMP0141 NEW)
 endif()
 
-project(NativeStudio VERSION 0.3.4 LANGUAGES CXX)
+project(NativeStudio VERSION 0.3.5 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -32,6 +32,7 @@ add_library(nativeide_core STATIC
 
 target_link_libraries(nativeide_core PUBLIC Qt6::Widgets Qt6::Network)
 target_include_directories(nativeide_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_compile_definitions(nativeide_core PRIVATE NATIVE_STUDIO_VERSION="${PROJECT_VERSION}")
 
 if(MSVC)
     target_compile_options(nativeide_core PRIVATE /W4 /permissive-)

@@ -6,9 +6,9 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
-#include <QFormLayout>
 #include <QHeaderView>
 #include <QHBoxLayout>
+#include <QItemSelectionModel>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -19,11 +19,12 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QPushButton>
-#include <QRegularExpression>
 #include <QSaveFile>
 #include <QSettings>
 #include <QTableWidget>
+#include <QTimer>
 #include <QUrl>
+#include <QVersionNumber>
 #include <QVBoxLayout>
 
 namespace {
@@ -31,13 +32,71 @@ constexpr int FileNameRole = Qt::UserRole + 1;
 constexpr int DownloadUrlRole = Qt::UserRole + 2;
 constexpr int BundledRole = Qt::UserRole + 3;
 constexpr int FilePathRole = Qt::UserRole + 4;
+constexpr int RemoteVersionRole = Qt::UserRole + 5;
+constexpr int StatusRole = Qt::UserRole + 6;
+constexpr auto PluginRepository = "AnFa222/native-studio";
+
+QString displayNameForAsset(const QString &fileName)
+{
+    if (fileName.compare(QStringLiteral("language_cpp.dll"), Qt::CaseInsensitive) == 0)
+        return QStringLiteral("C++ Language Support");
+    if (fileName.compare(QStringLiteral("language_python.dll"), Qt::CaseInsensitive) == 0)
+        return QStringLiteral("Python Language Support");
+
+    QString name = QFileInfo(fileName).completeBaseName();
+    name.remove(QStringLiteral("language_"), Qt::CaseInsensitive);
+    const auto words = name.split(QLatin1Char('_'), Qt::SkipEmptyParts);
+    QStringList title;
+    for (QString word : words) {
+        if (!word.isEmpty()) word[0] = word[0].toUpper();
+        title.push_back(word);
+    }
+    return title.join(QLatin1Char(' ')) + QStringLiteral(" Language Support");
+}
+
+QStringList extensionsForAsset(const QString &fileName)
+{
+    if (fileName.compare(QStringLiteral("language_cpp.dll"), Qt::CaseInsensitive) == 0)
+        return {QStringLiteral("c"), QStringLiteral("cc"), QStringLiteral("cpp"),
+                QStringLiteral("cxx"), QStringLiteral("h"), QStringLiteral("hpp")};
+    if (fileName.compare(QStringLiteral("language_python.dll"), Qt::CaseInsensitive) == 0)
+        return {QStringLiteral("py"), QStringLiteral("pyw"), QStringLiteral("pyi")};
+    return {};
+}
+
+QString descriptionForAsset(const QString &fileName)
+{
+    if (fileName.compare(QStringLiteral("language_cpp.dll"), Qt::CaseInsensitive) == 0)
+        return QStringLiteral("C and C++ syntax highlighting and file detection.");
+    if (fileName.compare(QStringLiteral("language_python.dll"), Qt::CaseInsensitive) == 0)
+        return QStringLiteral("Python highlighting, file detection, and native file runner.");
+    return QStringLiteral("Native language support plugin from the Native Studio GitHub release.");
+}
+
+QString currentApplicationRelease()
+{
+#ifdef NATIVE_STUDIO_VERSION
+    return QStringLiteral("v") + QStringLiteral(NATIVE_STUDIO_VERSION);
+#else
+    return {};
+#endif
+}
+
+bool releaseIsNewer(QString available, QString installed)
+{
+    if (available.startsWith(QLatin1Char('v'), Qt::CaseInsensitive)) available.remove(0, 1);
+    if (installed.startsWith(QLatin1Char('v'), Qt::CaseInsensitive)) installed.remove(0, 1);
+    const auto availableVersion = QVersionNumber::fromString(available);
+    const auto installedVersion = QVersionNumber::fromString(installed);
+    if (!availableVersion.isNull() && !installedVersion.isNull())
+        return QVersionNumber::compare(availableVersion, installedVersion) > 0;
+    return available != installed;
+}
 
 void applyGitHubHeaders(QNetworkRequest &request)
 {
     request.setRawHeader("Accept", "application/vnd.github+json");
     request.setRawHeader("User-Agent", "Native-Studio-Plugin-Manager");
-    const QByteArray token = qgetenv("NATIVE_STUDIO_GITHUB_TOKEN");
-    if (!token.isEmpty()) request.setRawHeader("Authorization", QByteArrayLiteral("Bearer ") + token);
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
 }
 }
@@ -46,31 +105,40 @@ PluginManagerDialog::PluginManagerDialog(LanguageManager *languageManager, QWidg
     : QDialog(parent)
     , m_languageManager(languageManager)
     , m_network(new QNetworkAccessManager(this))
-    , m_repository(new QLineEdit(this))
+    , m_search(new QLineEdit(this))
     , m_table(new QTableWidget(this))
     , m_status(new QLabel(this))
+    , m_installButton(new QPushButton(tr("Install"), this))
+    , m_removeButton(new QPushButton(tr("Remove"), this))
+    , m_refreshButton(new QPushButton(tr("Refresh"), this))
 {
-    setWindowTitle(tr("Manage Language Plugins"));
-    resize(760, 460);
+    setObjectName(QStringLiteral("pluginExplorer"));
+    setWindowTitle(tr("Plugin Explorer"));
+    resize(900, 560);
     setModal(true);
 
-    m_repository->setPlaceholderText(tr("owner/repository"));
-    m_repository->setText(QSettings().value(QStringLiteral("plugins/githubRepository"),
-                                             QStringLiteral("AnFa222/native-studio")).toString());
-    m_repository->setToolTip(tr("GitHub repository whose latest release contains language_*.dll assets"));
+    auto *heading = new QLabel(tr("PLUGIN EXPLORER"), this);
+    heading->setObjectName(QStringLiteral("pluginExplorerHeading"));
+    auto *description = new QLabel(
+        tr("Browse language plugins published on github.com/%1/releases")
+            .arg(QString::fromLatin1(PluginRepository)), this);
+    description->setObjectName(QStringLiteral("pluginExplorerDescription"));
+    m_search->setObjectName(QStringLiteral("pluginSearch"));
+    m_search->setPlaceholderText(tr("Search plugins or file extensions"));
+    m_refreshButton->setObjectName(QStringLiteral("refreshPluginCatalog"));
 
-    auto *checkButton = new QPushButton(tr("Check GitHub"), this);
-    auto *repositoryLayout = new QHBoxLayout;
-    repositoryLayout->addWidget(new QLabel(tr("Plugin repository:"), this));
-    repositoryLayout->addWidget(m_repository, 1);
-    repositoryLayout->addWidget(checkButton);
+    auto *searchLayout = new QHBoxLayout;
+    searchLayout->addWidget(m_search, 1);
+    searchLayout->addWidget(m_refreshButton);
 
     m_table->setColumnCount(5);
-    m_table->setHorizontalHeaderLabels({tr("Plugin"), tr("Extensions"), tr("Installed"),
-                                        tr("Available"), tr("Source")});
+    m_table->setObjectName(QStringLiteral("pluginTable"));
+    m_table->setHorizontalHeaderLabels({tr("Plugin"), tr("File types"), tr("Installed"),
+                                        tr("Latest"), tr("Status")});
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setSelectionMode(QAbstractItemView::SingleSelection);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_table->setAlternatingRowColors(true);
     m_table->verticalHeader()->hide();
     m_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
     m_table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
@@ -78,30 +146,37 @@ PluginManagerDialog::PluginManagerDialog(LanguageManager *languageManager, QWidg
     m_table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
     m_table->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
 
-    auto *installButton = new QPushButton(tr("Install / Update"), this);
-    auto *removeButton = new QPushButton(tr("Remove"), this);
+    m_installButton->setObjectName(QStringLiteral("installPluginButton"));
+    m_installButton->setProperty("accent", true);
+    m_removeButton->setObjectName(QStringLiteral("removePluginButton"));
     auto *closeButtons = new QDialogButtonBox(QDialogButtonBox::Close, this);
     auto *actions = new QHBoxLayout;
-    actions->addWidget(installButton);
-    actions->addWidget(removeButton);
+    actions->addWidget(m_installButton);
+    actions->addWidget(m_removeButton);
     actions->addStretch();
     actions->addWidget(closeButtons);
 
     m_status->setWordWrap(true);
+    m_status->setObjectName(QStringLiteral("pluginExplorerStatus"));
     auto *layout = new QVBoxLayout(this);
-    layout->addLayout(repositoryLayout);
-    layout->addWidget(new QLabel(
-        tr("Installable plugins are Windows DLL assets named language_*.dll in the latest GitHub release. "
-           "For private repositories, set NATIVE_STUDIO_GITHUB_TOKEN before starting the IDE."), this));
+    layout->setContentsMargins(18, 16, 18, 16);
+    layout->setSpacing(10);
+    layout->addWidget(heading);
+    layout->addWidget(description);
+    layout->addLayout(searchLayout);
     layout->addWidget(m_table, 1);
     layout->addWidget(m_status);
     layout->addLayout(actions);
 
-    connect(checkButton, &QPushButton::clicked, this, &PluginManagerDialog::checkGitHub);
-    connect(installButton, &QPushButton::clicked, this, &PluginManagerDialog::installOrUpdateSelected);
-    connect(removeButton, &QPushButton::clicked, this, &PluginManagerDialog::removeSelected);
+    connect(m_refreshButton, &QPushButton::clicked, this, &PluginManagerDialog::refreshCatalog);
+    connect(m_installButton, &QPushButton::clicked, this, &PluginManagerDialog::installOrUpdateSelected);
+    connect(m_removeButton, &QPushButton::clicked, this, &PluginManagerDialog::removeSelected);
+    connect(m_search, &QLineEdit::textChanged, this, &PluginManagerDialog::filterPlugins);
+    connect(m_table->selectionModel(), &QItemSelectionModel::selectionChanged,
+            this, &PluginManagerDialog::updateActions);
     connect(closeButtons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     refreshTable();
+    QTimer::singleShot(0, this, &PluginManagerDialog::refreshCatalog);
 }
 
 void PluginManagerDialog::refreshTable()
@@ -131,37 +206,61 @@ void PluginManagerDialog::refreshTable()
             }
         }
 
-        const QString displayName = local ? local->name : QFileInfo(fileName).completeBaseName();
+        const QString displayName = local ? local->name : remote->displayName;
         auto *nameItem = new QTableWidgetItem(displayName);
+        nameItem->setToolTip(remote ? remote->description : QString{});
         nameItem->setData(FileNameRole, fileName);
         nameItem->setData(DownloadUrlRole, remote ? remote->downloadUrl : QString{});
         nameItem->setData(BundledRole, local ? local->bundled : false);
         nameItem->setData(FilePathRole, local ? local->filePath : QString{});
+        nameItem->setData(RemoteVersionRole, remote ? remote->version : QString{});
+
+        QString state;
+        if (!local) {
+            state = tr("Available");
+        } else if (!remote) {
+            state = tr("Installed");
+        } else {
+            const QString installedRelease = local->bundled
+                ? currentApplicationRelease()
+                : QSettings().value(QStringLiteral("plugins/installedRelease/") + fileName).toString();
+            state = installedRelease.isEmpty() || releaseIsNewer(remote->version, installedRelease)
+                ? tr("Update available") : tr("Installed");
+        }
+        nameItem->setData(StatusRole, state);
         m_table->setItem(row, 0, nameItem);
-        m_table->setItem(row, 1, new QTableWidgetItem(local ? local->extensions.join(QStringLiteral(", ")) : QString{}));
+        const QStringList extensions = local ? local->extensions : remote->extensions;
+        QStringList formattedExtensions;
+        for (const auto &extension : extensions)
+            formattedExtensions.push_back(QLatin1Char('.') + extension);
+        m_table->setItem(row, 1, new QTableWidgetItem(formattedExtensions.join(QStringLiteral(", "))));
         m_table->setItem(row, 2, new QTableWidgetItem(local ? local->version : tr("Not installed")));
         m_table->setItem(row, 3, new QTableWidgetItem(remote ? remote->version : QStringLiteral("—")));
-        m_table->setItem(row, 4, new QTableWidgetItem(local ? (local->bundled ? tr("Bundled") : tr("User")) : tr("GitHub")));
+        auto *statusItem = new QTableWidgetItem(state);
+        statusItem->setForeground(state == tr("Update available")
+                                      ? QColor(QStringLiteral("#d29922"))
+                                      : state == tr("Available")
+                                            ? QColor(QStringLiteral("#58a6ff"))
+                                            : QColor(QStringLiteral("#3fb950")));
+        m_table->setItem(row, 4, statusItem);
     }
     if (m_table->rowCount() > 0) m_table->selectRow(0);
+    filterPlugins(m_search->text());
+    updateActions();
 }
 
-void PluginManagerDialog::checkGitHub()
+void PluginManagerDialog::refreshCatalog()
 {
-    const QString repository = m_repository->text().trimmed();
-    const QRegularExpression valid(QStringLiteral("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"));
-    if (!valid.match(repository).hasMatch()) {
-        setStatus(tr("Enter a GitHub repository as owner/repository."), true);
-        return;
-    }
-    QSettings().setValue(QStringLiteral("plugins/githubRepository"), repository);
-    setStatus(tr("Checking the latest GitHub release…"));
+    m_refreshButton->setEnabled(false);
+    setStatus(tr("Loading plugins from GitHub…"));
 
-    QNetworkRequest request(QUrl(QStringLiteral("https://api.github.com/repos/%1/releases/latest").arg(repository)));
+    QNetworkRequest request(QUrl(QStringLiteral("https://api.github.com/repos/%1/releases/latest")
+                                     .arg(QString::fromLatin1(PluginRepository))));
     applyGitHubHeaders(request);
     auto *reply = m_network->get(request);
     connect(reply, &QNetworkReply::finished, this, [this, reply] {
         const QByteArray payload = reply->readAll();
+        m_refreshButton->setEnabled(true);
         if (reply->error() != QNetworkReply::NoError) {
             setStatus(tr("GitHub request failed: %1").arg(reply->errorString()), true);
             reply->deleteLater();
@@ -175,13 +274,15 @@ void PluginManagerDialog::checkGitHub()
             const QString name = asset.value(QStringLiteral("name")).toString();
             if (!name.startsWith(QStringLiteral("language_"), Qt::CaseInsensitive)
                 || !name.endsWith(QStringLiteral(".dll"), Qt::CaseInsensitive)) continue;
-            m_remotePlugins.push_back({name, version,
+            m_remotePlugins.push_back({name, displayNameForAsset(name), descriptionForAsset(name),
+                extensionsForAsset(name), version,
                 asset.value(QStringLiteral("browser_download_url")).toString()});
         }
         refreshTable();
         setStatus(m_remotePlugins.isEmpty()
-            ? tr("The latest release has no language_*.dll assets.")
-            : tr("Found %1 plugin asset(s) in release %2.").arg(m_remotePlugins.size()).arg(version));
+            ? tr("The latest GitHub release has no language plugins.")
+            : tr("%1 plugin(s) available from GitHub release %2.")
+                  .arg(m_remotePlugins.size()).arg(version));
         reply->deleteLater();
     });
 }
@@ -200,15 +301,16 @@ void PluginManagerDialog::installOrUpdateSelected()
     const QString url = item->data(DownloadUrlRole).toString();
     const QString fileName = item->data(FileNameRole).toString();
     if (url.isEmpty()) {
-        setStatus(tr("Check GitHub first; no downloadable asset is available for this plugin."), true);
+        setStatus(tr("This plugin is not available in the current GitHub release."), true);
         return;
     }
 
+    const QString version = item->data(RemoteVersionRole).toString();
     setStatus(tr("Downloading %1…").arg(fileName));
     QNetworkRequest request{QUrl(url)};
     applyGitHubHeaders(request);
     auto *reply = m_network->get(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, fileName] {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, fileName, version] {
         if (reply->error() != QNetworkReply::NoError) {
             setStatus(tr("Download failed: %1").arg(reply->errorString()), true);
             reply->deleteLater();
@@ -226,7 +328,15 @@ void PluginManagerDialog::installOrUpdateSelected()
         auto disabled = settings.value(QStringLiteral("plugins/disabled")).toStringList();
         disabled.removeAll(fileName);
         settings.setValue(QStringLiteral("plugins/disabled"), disabled);
+        settings.setValue(QStringLiteral("plugins/installedRelease/") + fileName, version);
         setStatus(tr("%1 is staged. Restart Native Studio to finish installation.").arg(fileName));
+        const int row = selectedRow();
+        if (row >= 0) {
+            m_table->item(row, 0)->setData(StatusRole, tr("Restart required"));
+            m_table->item(row, 4)->setText(tr("Restart required"));
+            m_table->item(row, 4)->setForeground(QColor(QStringLiteral("#d29922")));
+            updateActions();
+        }
         reply->deleteLater();
     });
 }
@@ -256,6 +366,37 @@ void PluginManagerDialog::removeSelected()
         marker.open(QIODevice::WriteOnly);
     }
     setStatus(tr("%1 will be removed or disabled after restart.").arg(item->text()));
+    m_table->item(row, 0)->setData(StatusRole, tr("Removal pending"));
+    m_table->item(row, 4)->setText(tr("Removal pending"));
+    m_table->item(row, 4)->setForeground(QColor(QStringLiteral("#d29922")));
+    updateActions();
+}
+
+void PluginManagerDialog::filterPlugins(const QString &query)
+{
+    const QString needle = query.trimmed();
+    for (int row = 0; row < m_table->rowCount(); ++row) {
+        bool matches = needle.isEmpty();
+        for (int column = 0; !matches && column < m_table->columnCount(); ++column) {
+            const auto *item = m_table->item(row, column);
+            matches = item && item->text().contains(needle, Qt::CaseInsensitive);
+        }
+        m_table->setRowHidden(row, !matches);
+    }
+}
+
+void PluginManagerDialog::updateActions()
+{
+    const int row = selectedRow();
+    const auto *item = row >= 0 ? m_table->item(row, 0) : nullptr;
+    const QString state = item ? item->data(StatusRole).toString() : QString{};
+    const bool downloadable = item && !item->data(DownloadUrlRole).toString().isEmpty();
+    const bool installed = item && !item->data(FilePathRole).toString().isEmpty();
+    m_installButton->setText(state == tr("Update available") ? tr("Update") : tr("Install"));
+    m_installButton->setEnabled(downloadable && state != tr("Installed")
+                                && state != tr("Restart required")
+                                && state != tr("Removal pending"));
+    m_removeButton->setEnabled(installed && state != tr("Removal pending"));
 }
 
 void PluginManagerDialog::setStatus(const QString &message, bool error)

@@ -106,7 +106,7 @@ void MainWindow::createActions()
 
     auto *openProjectAction = projectMenu->addAction(tr("&Open Project..."), this, &MainWindow::chooseProject);
     openProjectAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_O));
-    pluginsMenu->addAction(tr("Manage Plugins…"), this, &MainWindow::managePlugins);
+    pluginsMenu->addAction(tr("Plugin Explorer…"), this, &MainWindow::managePlugins);
     pluginsMenu->addAction(tr("Rescan Language Plugins"), this, &MainWindow::reloadLanguagePlugins);
     runMenu->addAction(m_runAction);
     viewMenu->addAction(m_terminalDock->toggleViewAction());
@@ -140,6 +140,19 @@ void MainWindow::applyTheme()
         QLineEdit { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 4px; padding: 5px 7px; selection-background-color: #1f6feb; }
         QLineEdit:focus { border: 1px solid #58a6ff; }
         QLineEdit#terminalInput { background: #010409; color: #79c0ff; border-color: #21262d; }
+        QDialog#pluginExplorer { background: #0d1117; color: #c9d1d9; }
+        QLabel#pluginExplorerHeading { color: #58a6ff; font-size: 16px; font-weight: 700; }
+        QLabel#pluginExplorerDescription { color: #8b949e; }
+        QLabel#pluginExplorerStatus { color: #8b949e; padding: 2px; }
+        QTableWidget#pluginTable { background: #0d1117; alternate-background-color: #161b22; color: #c9d1d9; border: 1px solid #30363d; gridline-color: #21262d; selection-background-color: #1f6feb; selection-color: #ffffff; }
+        QTableWidget#pluginTable::item { padding: 6px; }
+        QHeaderView::section { background: #21262d; color: #8b949e; border: 0; border-right: 1px solid #30363d; border-bottom: 1px solid #30363d; padding: 7px; font-weight: 600; }
+        QPushButton { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 4px; padding: 6px 12px; }
+        QPushButton:hover { background: #30363d; color: #ffffff; }
+        QPushButton:disabled { color: #6e7681; background: #161b22; }
+        QPushButton[accent="true"] { background: #238636; color: #ffffff; border-color: #2ea043; font-weight: 600; }
+        QPushButton[accent="true"]:hover { background: #2ea043; }
+        QPushButton[accent="true"]:disabled { background: #1b4724; color: #8b949e; border-color: #245c2f; }
         QTreeView { background: #161b22; color: #c9d1d9; border: 0; outline: 0; selection-background-color: #1f6feb; selection-color: #ffffff; }
         QTreeView::item { height: 22px; border: 0; }
         QTreeView::item:hover:!selected { background: #21262d; color: #ffffff; }

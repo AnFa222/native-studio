@@ -8,7 +8,7 @@ Language support is not compiled into the editor core. Native Qt plugins are dis
 
 Use **Plugins > Rescan Language Plugins** after copying a new plugin into that directory.
 
-Use **Plugins > Manage Plugins** to inspect installed plugins, enter a GitHub `owner/repository`, check its latest release, and stage `language_*.dll` assets for installation or update. Removing and updating plugins is applied safely on restart because Windows cannot replace a loaded DLL. Public repositories need no credentials. For a private plugin repository, start the IDE with `NATIVE_STUDIO_GITHUB_TOKEN` set to a GitHub token that can read that repository; Native Studio does not persist the token.
+Use **Plugins > Plugin Explorer** to browse and search language plugins published on the [Native Studio GitHub releases page](https://github.com/AnFa222/native-studio/releases). The explorer automatically checks the latest public release and shows which plugins are available, installed, or ready to update. Installation, removal, and updates are safely applied after restarting because Windows cannot replace a loaded DLL.
 
 ## Running and terminal
 
