@@ -73,8 +73,14 @@ int LanguageManager::loadDefaultPlugins()
 {
     applyPendingOperations();
     int loaded = loadPlugins(userPluginDirectory(), false);
-    loaded += loadPlugins(QDir(QCoreApplication::applicationDirPath())
-                              .filePath(QStringLiteral("plugins/languages")), true);
+    const QDir applicationDirectory(QCoreApplication::applicationDirPath());
+    const QString bundledPath = applicationDirectory.filePath(QStringLiteral("plugins/languages"));
+    loaded += loadPlugins(bundledPath, true);
+    const QString multiConfigPath = QDir(applicationDirectory.filePath(QStringLiteral("..")))
+                                        .filePath(QStringLiteral("plugins/languages"));
+    if (QDir::cleanPath(multiConfigPath) != QDir::cleanPath(bundledPath)) {
+        loaded += loadPlugins(multiConfigPath, true);
+    }
     return loaded;
 }
 
