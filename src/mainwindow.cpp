@@ -14,6 +14,8 @@
 #include <QFileInfo>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QPainter>
+#include <QPixmap>
 #include <QStatusBar>
 #include <QTabWidget>
 #include <QToolBar>
@@ -36,6 +38,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_tabs->setDocumentMode(true);
     setCentralWidget(m_tabs);
     connect(m_tabs, &QTabWidget::tabCloseRequested, this, &MainWindow::closeTab);
+    connect(m_tabs, &QTabWidget::currentChanged, this, [this] { updateRunAction(); });
 
     connect(m_projectExplorer, &ProjectExplorer::fileActivated, this, &MainWindow::openFile);
 
@@ -88,6 +91,15 @@ void MainWindow::createActions()
     fileMenu->addSeparator();
     addAction(tr("&Save"), QKeySequence::Save, this, &MainWindow::saveCurrentFile);
     addAction(tr("Save &As..."), QKeySequence::SaveAs, this, &MainWindow::saveCurrentFileAs);
+    auto *toolbarSpacer = new QWidget(toolbar);
+    toolbarSpacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    toolbar->addWidget(toolbarSpacer);
+    m_runAction = toolbar->addAction(createRunIcon(), tr("Run Current File"),
+                                     this, &MainWindow::runCurrentFile);
+    m_runAction->setObjectName(QStringLiteral("runCurrentFileAction"));
+    m_runAction->setToolTip(tr("Run Current File (Ctrl+F5)"));
+    m_runAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F5));
+    m_runAction->setVisible(false);
     fileMenu->addSeparator();
     auto *exitAction = fileMenu->addAction(tr("E&xit"), this, &QWidget::close);
     exitAction->setShortcut(QKeySequence::Quit);
@@ -96,8 +108,7 @@ void MainWindow::createActions()
     openProjectAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_O));
     pluginsMenu->addAction(tr("Manage Plugins…"), this, &MainWindow::managePlugins);
     pluginsMenu->addAction(tr("Rescan Language Plugins"), this, &MainWindow::reloadLanguagePlugins);
-    auto *runAction = runMenu->addAction(tr("Run Current File"), this, &MainWindow::runCurrentFile);
-    runAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F5));
+    runMenu->addAction(m_runAction);
     viewMenu->addAction(m_terminalDock->toggleViewAction());
 }
 
@@ -134,6 +145,7 @@ CodeEditor *MainWindow::addEditor(const QString &title)
     connect(editor, &CodeEditor::cursorPositionDescriptionChanged,
             statusBar(), [this](const QString &message) { statusBar()->showMessage(message); });
     editor->setFocus();
+    updateRunAction();
     return editor;
 }
 
@@ -200,6 +212,7 @@ void MainWindow::openFile(const QString &path)
     }
     editor->setSyntaxHighlighter(m_languageManager->createHighlighter(path, editor->document()));
     updateTabTitle(editor);
+    updateRunAction();
     statusBar()->showMessage(tr("%1 — %2")
                                  .arg(QDir::toNativeSeparators(path),
                                       m_languageManager->languageForFile(path)), 3000);
@@ -235,6 +248,7 @@ bool MainWindow::saveEditor(CodeEditor *editor, bool forceDialog)
     }
     editor->setSyntaxHighlighter(m_languageManager->createHighlighter(path, editor->document()));
     updateTabTitle(editor);
+    updateRunAction();
     statusBar()->showMessage(tr("Saved %1").arg(QDir::toNativeSeparators(path)), 3000);
     return true;
 }
@@ -273,6 +287,29 @@ void MainWindow::runCurrentFile()
     m_terminalDock->raise();
     m_terminal->executeProgram(configuration.program, configuration.arguments,
                                configuration.workingDirectory);
+}
+
+void MainWindow::updateRunAction()
+{
+    if (!m_runAction) return;
+    const auto *editor = currentEditor();
+    const bool supported = editor && !editor->filePath().isEmpty()
+        && m_languageManager->runConfiguration(editor->filePath()).isValid();
+    m_runAction->setVisible(supported);
+}
+
+QIcon MainWindow::createRunIcon()
+{
+    QPixmap pixmap(24, 24);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor(QStringLiteral("#3fb950")));
+    QPolygonF triangle;
+    triangle << QPointF(7.0, 4.0) << QPointF(19.0, 12.0) << QPointF(7.0, 20.0);
+    painter.drawPolygon(triangle);
+    return QIcon(pixmap);
 }
 
 bool MainWindow::confirmCloseEditor(CodeEditor *editor)

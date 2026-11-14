@@ -3,6 +3,8 @@
 #include <QMainWindow>
 
 class CodeEditor;
+class QAction;
+class QIcon;
 class LanguageManager;
 class ProjectExplorer;
 class QDockWidget;
@@ -50,11 +52,14 @@ private:
     void updateTabTitle(CodeEditor *editor);
     void createActions();
     void applyTheme();
+    void updateRunAction();
+    [[nodiscard]] static QIcon createRunIcon();
 
     QTabWidget *m_tabs = nullptr;
     ProjectExplorer *m_projectExplorer = nullptr;
     LanguageManager *m_languageManager = nullptr;
     TerminalWidget *m_terminal = nullptr;
     QDockWidget *m_terminalDock = nullptr;
+    QAction *m_runAction = nullptr;
     QString m_projectDirectory;
 };

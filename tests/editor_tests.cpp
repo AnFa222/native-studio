@@ -5,6 +5,7 @@
 #include "terminalwidget.h"
 
 #include <QFile>
+#include <QAction>
 #include <QFileInfo>
 #include <QFileSystemModel>
 #include <QTabWidget>
@@ -29,6 +30,7 @@ private slots:
     void loadsPythonPlugin();
     void unknownLanguageUsesPlainText();
     void terminalRunsProgram();
+    void runActionTracksSupportedFile();
 };
 
 void EditorTests::startsWithOneUntitledEditor()
@@ -170,6 +172,29 @@ void EditorTests::terminalRunsProgram()
 #endif
     QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 5000);
     QVERIFY(window.terminal()->outputText().contains(QStringLiteral("terminal-ready")));
+}
+
+void EditorTests::runActionTracksSupportedFile()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString pythonPath = directory.filePath(QStringLiteral("supported.py"));
+    const QString textPath = directory.filePath(QStringLiteral("unsupported.xyz"));
+    for (const auto &path : {pythonPath, textPath}) {
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write("content\n");
+    }
+
+    MainWindow window;
+    auto *runAction = window.findChild<QAction *>(QStringLiteral("runCurrentFileAction"));
+    QVERIFY(runAction != nullptr);
+    QVERIFY(!runAction->isVisible());
+
+    window.openFile(pythonPath);
+    QVERIFY(runAction->isVisible());
+    window.openFile(textPath);
+    QVERIFY(!runAction->isVisible());
 }
 
 QTEST_MAIN(EditorTests)
