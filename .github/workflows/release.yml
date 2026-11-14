@@ -20,17 +20,17 @@ jobs:
           arch: win64_msvc2022_64
           cache: true
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+        run: cmake -S . -B build -G "Visual Studio 18 2026" -A x64 -DBUILD_TESTING=ON
       - name: Build
-        run: cmake --build build --parallel
+        run: cmake --build build --config Release --parallel
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build -C Release --output-on-failure
         env:
           QT_QPA_PLATFORM: offscreen
       - name: Stage portable application
         shell: pwsh
         run: |
-          cmake --install build --prefix package
+          cmake --install build --config Release --prefix package
           windeployqt --release --no-translations "package/bin/Native Studio.exe"
           Compress-Archive -Path package/* -DestinationPath NativeStudio-Windows-x64.zip
       - name: Publish release assets
