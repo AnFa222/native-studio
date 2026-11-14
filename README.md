@@ -12,7 +12,7 @@ Use **Plugins > Plugin Explorer** to browse and search language plugins publishe
 
 ## Language intelligence
 
-Completion and diagnostics are supplied by each language plugin rather than the editor core. The included Python and C++ plugins provide language keywords, built-ins and symbols found in the current document. Suggestions appear as inline ghost text and in a native popup; press **Tab** to accept the inline suggestion or **Ctrl+Space** to request the list.
+Completion and diagnostics are supplied by each language plugin rather than the editor core. The included Python and C++ plugins provide language keywords, built-ins and symbols found in the current document. Suggestions open from the first typed character, remain filtered as the prefix grows, and appear as inline ghost text plus a native popup. Press **Tab** or **Enter** to accept the selected suggestion, use the arrow keys to change it, or press **Ctrl+Space** to request the list.
 
 Both plugins also provide live syntax diagnostics. Errors and warnings use colored squiggles and line-number markers, show details on hover, and appear in **View > Problems**. The Python provider checks delimiters, strings, required colons, and mixed indentation. The C++ provider checks delimiters, strings, comments, and preprocessor conditionals.
 

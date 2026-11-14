@@ -60,9 +60,13 @@ CodeEditor::CodeEditor(QWidget *parent)
     m_completer->setCaseSensitivity(Qt::CaseInsensitive);
     m_completer->setCompletionMode(QCompleter::PopupCompletion);
     m_completer->setFilterMode(Qt::MatchStartsWith);
+    m_completer->setModelSorting(QCompleter::CaseInsensitivelySortedModel);
+    m_completer->setMaxVisibleItems(10);
     m_completer->popup()->setObjectName(QStringLiteral("completionPopup"));
     connect(m_completer, QOverload<const QString &>::of(&QCompleter::activated),
             this, &CodeEditor::insertCompletion);
+    connect(m_completer, QOverload<const QString &>::of(&QCompleter::highlighted),
+            this, &CodeEditor::useCompletionCandidate);
 
     connect(this, &QPlainTextEdit::blockCountChanged, this,
             [this] { updateLineNumberAreaWidth(); });
@@ -211,6 +215,11 @@ QString CodeEditor::inlineCompletion() const
     return m_inlineCompletion;
 }
 
+bool CodeEditor::completionPopupVisible() const
+{
+    return m_completer->popup()->isVisible();
+}
+
 QString CodeEditor::currentWordPrefix() const
 {
     const QTextCursor cursor = textCursor();
@@ -229,32 +238,52 @@ QString CodeEditor::currentWordPrefix() const
 void CodeEditor::updateInlineCompletion()
 {
     m_inlineCompletion.clear();
+    m_completionCandidate.clear();
     const QString prefix = currentWordPrefix();
-    if (prefix.size() < 2) {
+    if (prefix.isEmpty()) {
+        m_completer->popup()->hide();
         viewport()->update();
         return;
     }
-    for (const auto &candidate : m_completionModel->stringList()) {
-        if (candidate.size() <= prefix.size()
-            || !candidate.startsWith(prefix, Qt::CaseInsensitive)) continue;
-        m_inlineCompletion = candidate.mid(prefix.size());
-        if (candidate.startsWith(prefix, Qt::CaseSensitive)) break;
+
+    m_completer->setCompletionPrefix(prefix);
+    if (m_completer->completionCount() > 0 && m_completer->setCurrentRow(0)) {
+        useCompletionCandidate(m_completer->currentCompletion());
+    } else {
+        viewport()->update();
     }
-    viewport()->update();
 }
 
 void CodeEditor::showCompletionPopup()
 {
     const QString prefix = currentWordPrefix();
-    m_completer->setCompletionPrefix(prefix);
+    if (prefix.isEmpty()) {
+        m_completer->setCompletionPrefix({});
+    } else if (m_completer->completionPrefix() != prefix) {
+        m_completer->setCompletionPrefix(prefix);
+    }
     if (m_completer->completionCount() == 0) {
         m_completer->popup()->hide();
         return;
     }
-    m_completer->popup()->setCurrentIndex(m_completer->completionModel()->index(0, 0));
+    if (!m_completer->setCurrentRow(0)) {
+        m_completer->popup()->hide();
+        return;
+    }
+    m_completer->popup()->setCurrentIndex(m_completer->currentIndex());
+    useCompletionCandidate(m_completer->currentCompletion());
     QRect area = cursorRect();
-    area.setWidth(qMax(280, m_completer->popup()->sizeHintForColumn(0) + 24));
+    area.setWidth(qMax(320, m_completer->popup()->sizeHintForColumn(0) + 36));
     m_completer->complete(area);
+}
+
+void CodeEditor::useCompletionCandidate(const QString &completion)
+{
+    m_completionCandidate = completion;
+    const QString prefix = currentWordPrefix();
+    m_inlineCompletion = completion.startsWith(prefix, Qt::CaseInsensitive)
+        && completion.size() > prefix.size() ? completion.mid(prefix.size()) : QString{};
+    viewport()->update();
 }
 
 void CodeEditor::insertCompletion(const QString &completion)
@@ -270,35 +299,45 @@ void CodeEditor::insertCompletion(const QString &completion)
     }
     setTextCursor(cursor);
     m_completer->popup()->hide();
+    m_completionDismissed = false;
     updateInlineCompletion();
 }
 
 void CodeEditor::keyPressEvent(QKeyEvent *event)
 {
-    if (event->key() == Qt::Key_Tab && !m_inlineCompletion.isEmpty()) {
-        textCursor().insertText(m_inlineCompletion);
-        m_completer->popup()->hide();
-        updateInlineCompletion();
+    const bool acceptKey = event->key() == Qt::Key_Tab
+        || event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter;
+    if (acceptKey && (!m_inlineCompletion.isEmpty() || m_completer->popup()->isVisible())) {
+        const QString completion = !m_completionCandidate.isEmpty()
+            ? m_completionCandidate : currentWordPrefix() + m_inlineCompletion;
+        if (!completion.isEmpty()) insertCompletion(completion);
         event->accept();
         return;
     }
     if (event->key() == Qt::Key_Space && event->modifiers().testFlag(Qt::ControlModifier)) {
+        m_completionDismissed = false;
+        updateInlineCompletion();
         showCompletionPopup();
         event->accept();
         return;
     }
     if (event->key() == Qt::Key_Escape && m_completer->popup()->isVisible()) {
         m_completer->popup()->hide();
+        m_completionDismissed = true;
         event->accept();
         return;
     }
 
     QPlainTextEdit::keyPressEvent(event);
+    if (!event->text().isEmpty() || event->key() == Qt::Key_Backspace
+        || event->key() == Qt::Key_Delete) {
+        m_completionDismissed = false;
+    }
     updateInlineCompletion();
-    if (!event->text().isEmpty()) {
+    if (!m_completionDismissed && !event->text().isEmpty()) {
         const QChar typed = event->text().front();
         if ((typed.isLetterOrNumber() || typed == QLatin1Char('_'))
-            && currentWordPrefix().size() >= 2) showCompletionPopup();
+            && !currentWordPrefix().isEmpty()) showCompletionPopup();
     }
 }
 

@@ -275,16 +275,23 @@ void EditorTests::languagePluginsDetectErrors()
 void EditorTests::editorAcceptsInlineCompletion()
 {
     CodeEditor editor;
-    editor.setCompletionItems({QStringLiteral("print")});
-    editor.setPlainText(QStringLiteral("pri"));
-    QTextCursor cursor = editor.textCursor();
-    cursor.movePosition(QTextCursor::End);
-    editor.setTextCursor(cursor);
+    editor.setCompletionItems({QStringLiteral("print"), QStringLiteral("property")});
     editor.show();
     editor.setFocus();
     QCoreApplication::processEvents();
 
+    QTest::keyClicks(&editor, QStringLiteral("p"));
+    QVERIFY(!editor.inlineCompletion().isEmpty());
+    QVERIFY(editor.completionPopupVisible());
+    QTest::keyClicks(&editor, QStringLiteral("r"));
+    QCOMPARE(editor.inlineCompletion(), QStringLiteral("int"));
+    QVERIFY(editor.completionPopupVisible());
+    QTest::keyClicks(&editor, QStringLiteral("i"));
     QCOMPARE(editor.inlineCompletion(), QStringLiteral("nt"));
+    QVERIFY(editor.completionPopupVisible());
+    QTest::keyClicks(&editor, QStringLiteral("n"));
+    QCOMPARE(editor.inlineCompletion(), QStringLiteral("t"));
+    QVERIFY(editor.completionPopupVisible());
     QTest::keyClick(&editor, Qt::Key_Tab);
     QCOMPARE(editor.toPlainText(), QStringLiteral("print"));
 }

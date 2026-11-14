@@ -31,6 +31,7 @@ public:
     void setDiagnostics(const QList<CodeDiagnostic> &diagnostics);
     [[nodiscard]] const QList<CodeDiagnostic> &diagnostics() const;
     [[nodiscard]] QString inlineCompletion() const;
+    [[nodiscard]] bool completionPopupVisible() const;
 
 signals:
     void cursorPositionDescriptionChanged(const QString &description);
@@ -49,6 +50,7 @@ private:
     void updateInlineCompletion();
     void showCompletionPopup();
     void insertCompletion(const QString &completion);
+    void useCompletionCandidate(const QString &completion);
     [[nodiscard]] QString currentWordPrefix() const;
     [[nodiscard]] const CodeDiagnostic *diagnosticAt(int documentPosition) const;
 
@@ -58,5 +60,7 @@ private:
     QCompleter *m_completer = nullptr;
     QStringListModel *m_completionModel = nullptr;
     QString m_inlineCompletion;
+    QString m_completionCandidate;
+    bool m_completionDismissed = false;
     QList<CodeDiagnostic> m_diagnostics;
 };
