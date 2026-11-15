@@ -119,11 +119,12 @@ void CodeEditor::reloadSettings()
     editorFont.setPointSize(qBound(8, settings.value(QStringLiteral("editor/fontSize"), 11).toInt(),
                                    32));
     setFont(editorFont);
-    const int tabSize = qBound(1, settings.value(QStringLiteral("editor/tabSize"), 4).toInt(), 16);
-    setTabStopDistance(fontMetrics().horizontalAdvance(QLatin1Char(' ')) * tabSize);
+    m_tabSize = qBound(1, settings.value(QStringLiteral("editor/tabSize"), 4).toInt(), 16);
+    setTabStopDistance(fontMetrics().horizontalAdvance(QLatin1Char(' ')) * m_tabSize);
     setLineWrapMode(settings.value(QStringLiteral("editor/wordWrap"), false).toBool()
         ? QPlainTextEdit::WidgetWidth : QPlainTextEdit::NoWrap);
     m_autoClosePairs = settings.value(QStringLiteral("editor/autoClosePairs"), true).toBool();
+    m_autoIndent = settings.value(QStringLiteral("editor/autoIndent"), true).toBool();
     m_showLineNumbers = settings.value(QStringLiteral("editor/lineNumbers"), true).toBool();
     m_lineNumberArea->setVisible(m_showLineNumbers);
     const bool light = settings.value(QStringLiteral("appearance/theme"),
@@ -278,6 +279,46 @@ bool CodeEditor::completionPopupVisible() const
     return m_completer->popup()->isVisible();
 }
 
+void CodeEditor::setIndentationDeltaProvider(std::function<int(const QString &)> provider)
+{
+    m_indentationDeltaProvider = std::move(provider);
+}
+
+bool CodeEditor::insertAutoIndentedNewLine()
+{
+    if (!m_autoIndent) return false;
+    QTextCursor cursor = textCursor();
+    cursor.beginEditBlock();
+    if (cursor.hasSelection()) cursor.removeSelectedText();
+
+    const QString lineBeforeCursor = cursor.block().text().left(cursor.positionInBlock());
+    QString indentation;
+    while (indentation.size() < lineBeforeCursor.size()) {
+        const QChar character = lineBeforeCursor.at(indentation.size());
+        if (character != QLatin1Char(' ') && character != QLatin1Char('\t')) break;
+        indentation += character;
+    }
+
+    const int delta = m_indentationDeltaProvider
+        ? qMax(0, m_indentationDeltaProvider(lineBeforeCursor)) : 0;
+    const QString nestedIndent = indentation + QString(delta * m_tabSize, QLatin1Char(' '));
+    const QString contents = toPlainText();
+    const bool splitClosingBrace = delta > 0 && cursor.position() < contents.size()
+        && contents.at(cursor.position()) == QLatin1Char('}');
+    if (splitClosingBrace) {
+        cursor.insertText(QLatin1Char('\n') + nestedIndent + QLatin1Char('\n') + indentation);
+        cursor.movePosition(QTextCursor::Left, QTextCursor::MoveAnchor, indentation.size() + 1);
+    } else {
+        cursor.insertText(QLatin1Char('\n') + nestedIndent);
+    }
+    cursor.endEditBlock();
+    setTextCursor(cursor);
+    m_completer->popup()->hide();
+    m_completionDismissed = false;
+    updateCompletionCandidate();
+    return true;
+}
+
 QString CodeEditor::currentWordPrefix() const
 {
     const QTextCursor cursor = textCursor();
@@ -393,6 +434,12 @@ void CodeEditor::keyPressEvent(QKeyEvent *event)
     const bool hasCommandModifier = event->modifiers().testFlag(Qt::ControlModifier)
         || event->modifiers().testFlag(Qt::AltModifier)
         || event->modifiers().testFlag(Qt::MetaModifier);
+    if (!hasCommandModifier
+        && (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter)
+        && insertAutoIndentedNewLine()) {
+        event->accept();
+        return;
+    }
     if (m_autoClosePairs && !hasCommandModifier && event->text().size() == 1) {
         const QChar typed = event->text().front();
         QTextCursor cursor = textCursor();

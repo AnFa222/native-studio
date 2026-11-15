@@ -103,6 +103,9 @@ SettingsDialog::SettingsDialog(LanguageManager *languages, ExtensionManager *ext
     m_autoClosePairs = new QCheckBox(tr("Auto-close brackets and quotes"), editorPage);
     m_autoClosePairs->setObjectName(QStringLiteral("editorAutoClosePairsSetting"));
     m_autoClosePairs->setChecked(settings.value(QStringLiteral("editor/autoClosePairs"), true).toBool());
+    m_autoIndent = new QCheckBox(tr("Auto-indent new lines"), editorPage);
+    m_autoIndent->setObjectName(QStringLiteral("editorAutoIndentSetting"));
+    m_autoIndent->setChecked(settings.value(QStringLiteral("editor/autoIndent"), true).toBool());
     m_lineNumbers = new QCheckBox(tr("Show line numbers"), editorPage);
     m_lineNumbers->setObjectName(QStringLiteral("editorLineNumbersSetting"));
     m_lineNumbers->setChecked(settings.value(QStringLiteral("editor/lineNumbers"), true).toBool());
@@ -111,10 +114,11 @@ SettingsDialog::SettingsDialog(LanguageManager *languages, ExtensionManager *ext
     editorForm->addRow(tr("Tab size:"), m_tabSize);
     editorForm->addRow(QString{}, m_wordWrap);
     editorForm->addRow(QString{}, m_autoClosePairs);
+    editorForm->addRow(QString{}, m_autoIndent);
     editorForm->addRow(QString{}, m_lineNumbers);
     editorLayout->addLayout(editorForm);
     editorLayout->addStretch();
-    addPage(tr("Text Editor"), {tr("font"), tr("tab"), tr("wrap"), tr("bracket"),
+    addPage(tr("Text Editor"), {tr("font"), tr("tab"), tr("wrap"), tr("indent"), tr("bracket"),
                                  tr("quote"), tr("line number")}, editorPage);
 
     auto *terminalPage = new QWidget(m_pages);
@@ -265,6 +269,7 @@ void SettingsDialog::restoreDefaults()
     m_tabSize->setValue(4);
     m_wordWrap->setChecked(false);
     m_autoClosePairs->setChecked(true);
+    m_autoIndent->setChecked(true);
     m_lineNumbers->setChecked(true);
     m_terminalFont->setCurrentFont(fixedFont);
     m_terminalFontSize->setValue(qMax(8, fixedFont.pointSize()));
@@ -285,6 +290,7 @@ void SettingsDialog::accept()
     settings.setValue(QStringLiteral("editor/tabSize"), m_tabSize->value());
     settings.setValue(QStringLiteral("editor/wordWrap"), m_wordWrap->isChecked());
     settings.setValue(QStringLiteral("editor/autoClosePairs"), m_autoClosePairs->isChecked());
+    settings.setValue(QStringLiteral("editor/autoIndent"), m_autoIndent->isChecked());
     settings.setValue(QStringLiteral("editor/lineNumbers"), m_lineNumbers->isChecked());
     settings.setValue(QStringLiteral("terminal/fontFamily"), m_terminalFont->currentFont().family());
     settings.setValue(QStringLiteral("terminal/fontSize"), m_terminalFontSize->value());

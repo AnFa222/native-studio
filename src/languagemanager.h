@@ -58,6 +58,8 @@ public:
                                               const QString &documentText) const;
     [[nodiscard]] QList<CodeDiagnostic> diagnostics(const QString &filePath,
                                                     const QString &documentText) const;
+    [[nodiscard]] int indentationDeltaAfterLine(const QString &filePath,
+                                                const QString &lineText) const;
     [[nodiscard]] QList<LanguageStatusWidgetInfo> createStatusWidgets(QWidget *parent) const;
     [[nodiscard]] QList<LanguageSettingsPageInfo> createSettingsPages(QWidget *parent) const;
     [[nodiscard]] static QString userPluginDirectory();

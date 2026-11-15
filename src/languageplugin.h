@@ -84,3 +84,13 @@ public:
 
 #define LanguageSettingsProvider_iid "dev.nativestudio.LanguageSettingsProvider/1.0"
 Q_DECLARE_INTERFACE(LanguageSettingsProvider, LanguageSettingsProvider_iid)
+
+class LanguageIndentationProvider
+{
+public:
+    virtual ~LanguageIndentationProvider() = default;
+    [[nodiscard]] virtual int indentationDeltaAfterLine(const QString &lineText) const = 0;
+};
+
+#define LanguageIndentationProvider_iid "dev.nativestudio.LanguageIndentationProvider/1.0"
+Q_DECLARE_INTERFACE(LanguageIndentationProvider, LanguageIndentationProvider_iid)

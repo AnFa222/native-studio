@@ -142,6 +142,11 @@ QSyntaxHighlighter *CppLanguagePlugin::createHighlighter(QTextDocument *document
     return new CppHighlighter(document);
 }
 
+int CppLanguagePlugin::indentationDeltaAfterLine(const QString &lineText) const
+{
+    return codeWithoutCppStringsAndComments(lineText).trimmed().endsWith(QLatin1Char('{')) ? 1 : 0;
+}
+
 QStringList CppLanguagePlugin::completionItems(const QString &documentText) const
 {
     QSet<QString> items = {

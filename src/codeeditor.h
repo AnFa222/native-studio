@@ -5,6 +5,8 @@
 #include <QColor>
 #include <QPlainTextEdit>
 
+#include <functional>
+
 class QCompleter;
 class QEvent;
 class QKeyEvent;
@@ -33,6 +35,7 @@ public:
     [[nodiscard]] const QList<CodeDiagnostic> &diagnostics() const;
     [[nodiscard]] bool completionPopupVisible() const;
     void reloadSettings();
+    void setIndentationDeltaProvider(std::function<int(const QString &)> provider);
 
 signals:
     void cursorPositionDescriptionChanged(const QString &description);
@@ -54,6 +57,7 @@ private:
     bool selectBestCompletion(const QString &prefix);
     [[nodiscard]] QString currentWordPrefix() const;
     [[nodiscard]] const CodeDiagnostic *diagnosticAt(int documentPosition) const;
+    bool insertAutoIndentedNewLine();
 
     QString m_filePath;
     QSyntaxHighlighter *m_highlighter = nullptr;
@@ -63,7 +67,10 @@ private:
     QString m_completionCandidate;
     bool m_completionDismissed = false;
     bool m_autoClosePairs = true;
+    bool m_autoIndent = true;
     bool m_showLineNumbers = true;
+    int m_tabSize = 4;
+    std::function<int(const QString &)> m_indentationDeltaProvider;
     QColor m_currentLineColor;
     QColor m_gutterBackground;
     QColor m_gutterBorder;

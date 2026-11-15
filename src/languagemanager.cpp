@@ -182,6 +182,19 @@ QList<CodeDiagnostic> LanguageManager::diagnostics(const QString &filePath,
     return plugin ? plugin->diagnostics(documentText) : QList<CodeDiagnostic>{};
 }
 
+int LanguageManager::indentationDeltaAfterLine(const QString &filePath,
+                                               const QString &lineText) const
+{
+    const auto *plugin = m_byExtension.value(QFileInfo(filePath).suffix().toLower(), nullptr);
+    if (!plugin) return 0;
+    for (const auto &loaded : m_plugins) {
+        if (loaded.plugin != plugin) continue;
+        const auto *provider = qobject_cast<LanguageIndentationProvider *>(loaded.instance);
+        return provider ? qMax(0, provider->indentationDeltaAfterLine(lineText)) : 0;
+    }
+    return 0;
+}
+
 QList<LanguageStatusWidgetInfo> LanguageManager::createStatusWidgets(QWidget *parent) const
 {
     QList<LanguageStatusWidgetInfo> widgets;

@@ -25,6 +25,7 @@
 #include <QPushButton>
 #include <QSettings>
 #include <QTableWidget>
+#include <QTabBar>
 #include <QTest>
 #include <QTextBlock>
 #include <QTextCharFormat>
@@ -117,6 +118,7 @@ private slots:
     void backspaceRestoresCompletionSuggestions();
     void escapeThenEnterDoesNotAcceptCompletion();
     void autoClosesAndKeepsPairsOnBackspace();
+    void autoIndentsUsingLanguagePlugins();
     void problemsPanelTracksDiagnostics();
 };
 
@@ -128,6 +130,12 @@ void EditorTests::startsWithOneUntitledEditor()
     QVERIFY(window.projectTree() != nullptr);
     QVERIFY(window.languageManager()->languages().isEmpty());
     QVERIFY(window.extensionManager()->loadedExtensions().isEmpty());
+    auto *closeButton = window.editorTabs()->tabBar()->tabButton(0, QTabBar::RightSide);
+    QVERIFY(closeButton != nullptr);
+    QCOMPARE(closeButton->objectName(), QStringLiteral("editorTabCloseButton"));
+    auto *closeToolButton = qobject_cast<QToolButton *>(closeButton);
+    QVERIFY(closeToolButton != nullptr);
+    QCOMPARE(closeToolButton->text(), QStringLiteral("\u00d7"));
 }
 
 void EditorTests::loadsServicesIncrementally()
@@ -485,6 +493,7 @@ void EditorTests::settingsCenterIncludesCoreAndPluginPages()
     QVERIFY(categories->count() >= 5);
     QVERIFY(dialog.findChild<QComboBox *>(QStringLiteral("colorThemeSetting")) != nullptr);
     QVERIFY(dialog.findChild<QWidget *>(QStringLiteral("editorAutoClosePairsSetting")) != nullptr);
+    QVERIFY(dialog.findChild<QWidget *>(QStringLiteral("editorAutoIndentSetting")) != nullptr);
     QVERIFY(dialog.findChild<QPushButton *>(QStringLiteral("settingsManagePlugins")) != nullptr);
     QVERIFY(dialog.findChild<QPushButton *>(QStringLiteral("settingsManageExtensions")) != nullptr);
     QVERIFY(dialog.findChild<QWidget *>(QStringLiteral("pythonSettingsPage")) != nullptr);
@@ -539,6 +548,8 @@ void EditorTests::darkThemeKeepsCompactChrome()
     QVERIFY(!style.contains(QStringLiteral("QToolBar QToolButton { padding")));
     QVERIFY(!style.contains(QStringLiteral("spacing: 5px; padding: 5px 7px")));
     QVERIFY(!style.contains(QStringLiteral("padding: 9px 16px")));
+    QVERIFY(style.contains(QStringLiteral("padding: 5px 10px")));
+    QVERIFY(style.contains(QStringLiteral("QToolButton#editorTabCloseButton")));
 }
 
 void EditorTests::languagePluginsProvideCompletions()
@@ -790,6 +801,38 @@ void EditorTests::autoClosesAndKeepsPairsOnBackspace()
     QTest::keyClick(&editor, Qt::Key_BraceLeft);
     QCOMPARE(editor.toPlainText(), QStringLiteral("{value}"));
     QCOMPARE(editor.textCursor().selectedText(), QStringLiteral("value"));
+}
+
+void EditorTests::autoIndentsUsingLanguagePlugins()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString pythonPath = directory.filePath(QStringLiteral("indent.py"));
+    const QString cppPath = directory.filePath(QStringLiteral("indent.cpp"));
+    for (const QString &path : {pythonPath, cppPath}) {
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+    }
+
+    MainWindow window;
+    window.loadServicesNow();
+    window.openFile(pythonPath);
+    auto *pythonEditor = qobject_cast<CodeEditor *>(window.editorTabs()->currentWidget());
+    QVERIFY(pythonEditor != nullptr);
+    pythonEditor->setPlainText(QStringLiteral("if ready:"));
+    pythonEditor->moveCursor(QTextCursor::End);
+    QTest::keyClick(pythonEditor, Qt::Key_Return);
+    QCOMPARE(pythonEditor->toPlainText(), QStringLiteral("if ready:\n    "));
+
+    window.openFile(cppPath);
+    auto *cppEditor = qobject_cast<CodeEditor *>(window.editorTabs()->currentWidget());
+    QVERIFY(cppEditor != nullptr);
+    cppEditor->clear();
+    QTest::keyClick(cppEditor, Qt::Key_BraceLeft);
+    QCOMPARE(cppEditor->toPlainText(), QStringLiteral("{}"));
+    QTest::keyClick(cppEditor, Qt::Key_Return);
+    QCOMPARE(cppEditor->toPlainText(), QStringLiteral("{\n    \n}"));
+    QCOMPARE(cppEditor->textCursor().position(), 6);
 }
 
 void EditorTests::problemsPanelTracksDiagnostics()

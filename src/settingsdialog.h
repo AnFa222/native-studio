@@ -44,6 +44,7 @@ private:
     QSpinBox *m_tabSize = nullptr;
     QCheckBox *m_wordWrap = nullptr;
     QCheckBox *m_autoClosePairs = nullptr;
+    QCheckBox *m_autoIndent = nullptr;
     QCheckBox *m_lineNumbers = nullptr;
     QFontComboBox *m_terminalFont = nullptr;
     QSpinBox *m_terminalFontSize = nullptr;

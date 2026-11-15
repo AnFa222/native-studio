@@ -25,11 +25,13 @@
 #include <QPixmap>
 #include <QStatusBar>
 #include <QSettings>
+#include <QTabBar>
 #include <QTabWidget>
 #include <QTextBlock>
 #include <QTextCursor>
 #include <QTimer>
 #include <QToolBar>
+#include <QToolButton>
 #include <QTreeView>
 #include <QTreeWidget>
 
@@ -45,7 +47,7 @@ MainWindow::MainWindow(QWidget *parent)
     resize(1200, 760);
 
     m_tabs->setObjectName(QStringLiteral("editorTabs"));
-    m_tabs->setTabsClosable(true);
+    m_tabs->setTabsClosable(false);
     m_tabs->setMovable(true);
     m_tabs->setDocumentMode(true);
     setCentralWidget(m_tabs);
@@ -317,6 +319,8 @@ void MainWindow::applyTheme()
             QDockWidget#projectExplorerDock QWidget { background: #f6f8fa; }
             QToolButton { color: #24292f; background: transparent; border: 0; border-radius: 4px; }
             QToolButton:hover { background: #d0d7de; }
+            QToolButton#editorTabCloseButton { color: #57606a; background: transparent; border: 0; border-radius: 3px; padding: 0; font-size: 15px; font-weight: 400; }
+            QToolButton#editorTabCloseButton:hover { color: #24292f; background: #d0d7de; }
             QPlainTextEdit#codeEditor { background: #ffffff; color: #24292f; border: 0; selection-background-color: #b6e3ff; selection-color: #24292f; padding: 4px 0 0 6px; }
             QLineEdit, QComboBox, QSpinBox, QListWidget { background: #ffffff; color: #24292f; border: 1px solid #d0d7de; border-radius: 4px; padding: 5px 7px; }
             QTableWidget, QTreeWidget { background: #ffffff; alternate-background-color: #f6f8fa; color: #24292f; border: 1px solid #d0d7de; selection-background-color: #0969da; selection-color: #ffffff; }
@@ -348,6 +352,9 @@ void MainWindow::applyTheme()
         QToolButton { color: #c9d1d9; background: transparent; border: 0; border-radius: 4px; }
         QToolButton:hover { background: #30363d; color: #ffffff; }
         QToolButton:pressed { background: #1f6feb; }
+        QToolButton#editorTabCloseButton { color: #8b949e; background: transparent; border: 0; border-radius: 3px; padding: 0; font-size: 15px; font-weight: 400; }
+        QToolButton#editorTabCloseButton:hover { color: #ffffff; background: #30363d; }
+        QToolButton#editorTabCloseButton:pressed { color: #ffffff; background: #484f58; }
         QPlainTextEdit#codeEditor { background: #0d1117; color: #e6edf3; border: 0; selection-background-color: #264f78; selection-color: #ffffff; padding: 4px 0 0 6px; }
         QPlainTextEdit#terminalOutput { background: #010409; color: #ffffff; border: 0; selection-background-color: #1f6feb; selection-color: #ffffff; padding: 5px 8px; }
         QLineEdit { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 4px; padding: 5px 7px; selection-background-color: #1f6feb; }
@@ -379,7 +386,7 @@ void MainWindow::applyTheme()
         QTreeView::branch { background: #161b22; }
         QTabWidget::pane { background: #0d1117; border: 0; }
         QTabBar { background: #161b22; }
-        QTabBar::tab { background: #161b22; color: #8b949e; border-right: 1px solid #30363d; border-bottom: 1px solid #30363d; }
+        QTabBar::tab { background: #161b22; color: #8b949e; padding: 5px 10px; border-right: 1px solid #30363d; border-bottom: 1px solid #30363d; }
         QTabBar::tab:hover { background: #21262d; color: #e6edf3; }
         QTabBar::tab:selected { background: #0d1117; color: #ffffff; border-top: 2px solid #58a6ff; border-bottom: 0; }
         QScrollBar:vertical { background: #0d1117; width: 12px; margin: 0; }
@@ -410,7 +417,28 @@ void MainWindow::applySettings()
 CodeEditor *MainWindow::addEditor(const QString &title)
 {
     auto *editor = new CodeEditor(m_tabs);
+    editor->setIndentationDeltaProvider([this, editor](const QString &lineText) {
+        return m_languageManager->indentationDeltaAfterLine(editor->filePath(), lineText);
+    });
     const int index = m_tabs->addTab(editor, title);
+    auto *closeButton = new QToolButton(m_tabs->tabBar());
+    closeButton->setObjectName(QStringLiteral("editorTabCloseButton"));
+    closeButton->setText(QStringLiteral("\u00d7"));
+    closeButton->setToolTip(tr("Close tab"));
+    closeButton->setAccessibleName(tr("Close tab"));
+    closeButton->setAutoRaise(true);
+    closeButton->setFocusPolicy(Qt::NoFocus);
+    closeButton->setCursor(Qt::PointingHandCursor);
+    closeButton->setFixedSize(18, 18);
+    m_tabs->tabBar()->setTabButton(index, QTabBar::RightSide, closeButton);
+    connect(closeButton, &QToolButton::clicked, this, [this, closeButton] {
+        for (int tab = 0; tab < m_tabs->count(); ++tab) {
+            if (m_tabs->tabBar()->tabButton(tab, QTabBar::RightSide) == closeButton) {
+                closeTab(tab);
+                return;
+            }
+        }
+    });
     m_tabs->setCurrentIndex(index);
     connect(editor->document(), &QTextDocument::modificationChanged, this,
             [this, editor] { updateTabTitle(editor); });

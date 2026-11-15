@@ -400,6 +400,11 @@ QSyntaxHighlighter *PythonLanguagePlugin::createHighlighter(QTextDocument *docum
     return new PythonHighlighter(document);
 }
 
+int PythonLanguagePlugin::indentationDeltaAfterLine(const QString &lineText) const
+{
+    return codeWithoutPythonStringsAndComments(lineText).trimmed().endsWith(QLatin1Char(':')) ? 1 : 0;
+}
+
 RunConfiguration PythonLanguagePlugin::runConfiguration(const QString &filePath) const
 {
     RunConfiguration configuration;
