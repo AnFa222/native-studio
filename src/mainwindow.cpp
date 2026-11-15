@@ -331,14 +331,13 @@ void MainWindow::applyTheme()
     setStyleSheet(QStringLiteral(R"(
         QMainWindow { background: #0d1117; color: #c9d1d9; }
         QMenuBar { background: #161b22; color: #c9d1d9; border-bottom: 1px solid #30363d; }
-        QMenuBar::item { padding: 6px 9px; background: transparent; }
+        QMenuBar::item { background: transparent; }
         QMenuBar::item:selected { background: #30363d; color: #ffffff; }
         QMenu { background: #21262d; color: #c9d1d9; border: 1px solid #484f58; padding: 4px; }
         QMenu::item { padding: 6px 28px 6px 12px; border-radius: 3px; }
         QMenu::item:selected { background: #1f6feb; color: #ffffff; }
         QMenu::separator { height: 1px; background: #30363d; margin: 4px 8px; }
-        QToolBar { background: #161b22; color: #c9d1d9; border: 0; border-bottom: 1px solid #30363d; spacing: 5px; padding: 5px 7px; }
-        QToolBar QToolButton { padding: 5px 8px; }
+        QToolBar { background: #161b22; color: #c9d1d9; border: 0; border-bottom: 1px solid #30363d; }
         QStatusBar { background: #0969da; color: #ffffff; border: 0; }
         QStatusBar::item { border: 0; }
         QDockWidget { color: #c9d1d9; font-weight: 600; }
@@ -380,7 +379,7 @@ void MainWindow::applyTheme()
         QTreeView::branch { background: #161b22; }
         QTabWidget::pane { background: #0d1117; border: 0; }
         QTabBar { background: #161b22; }
-        QTabBar::tab { background: #161b22; color: #8b949e; padding: 9px 16px; border-right: 1px solid #30363d; border-bottom: 1px solid #30363d; }
+        QTabBar::tab { background: #161b22; color: #8b949e; border-right: 1px solid #30363d; border-bottom: 1px solid #30363d; }
         QTabBar::tab:hover { background: #21262d; color: #e6edf3; }
         QTabBar::tab:selected { background: #0d1117; color: #ffffff; border-top: 2px solid #58a6ff; border-bottom: 0; }
         QScrollBar:vertical { background: #0d1117; width: 12px; margin: 0; }

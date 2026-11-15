@@ -107,6 +107,7 @@ private slots:
     void extensionManagerShowsManifestControls();
     void settingsCenterIncludesCoreAndPluginPages();
     void lightThemeUsesDarkText();
+    void darkThemeKeepsCompactChrome();
     void languagePluginsProvideCompletions();
     void languagePluginsDetectErrors();
     void pythonAnalyzerFindsSemanticProblems();
@@ -523,6 +524,21 @@ void EditorTests::lightThemeUsesDarkText()
     QCOMPARE(editor->palette().color(QPalette::Text), QColor(QStringLiteral("#24292f")));
     QVERIFY(terminalView->styleSheet().contains(QStringLiteral("color: #24292f")));
     QVERIFY(terminalView->styleSheet().contains(QStringLiteral("background: #ffffff")));
+}
+
+void EditorTests::darkThemeKeepsCompactChrome()
+{
+    ApplicationSettingsGuard applicationSettings;
+    SettingGuard themeGuard(QStringLiteral("appearance/theme"));
+    QSettings().setValue(QStringLiteral("appearance/theme"), QStringLiteral("dark"));
+
+    MainWindow window;
+    const QString style = window.styleSheet();
+    QVERIFY(style.contains(QStringLiteral("QToolBar { background: #161b22")));
+    QVERIFY(style.contains(QStringLiteral("QTabBar::tab { background: #161b22")));
+    QVERIFY(!style.contains(QStringLiteral("QToolBar QToolButton { padding")));
+    QVERIFY(!style.contains(QStringLiteral("spacing: 5px; padding: 5px 7px")));
+    QVERIFY(!style.contains(QStringLiteral("padding: 9px 16px")));
 }
 
 void EditorTests::languagePluginsProvideCompletions()

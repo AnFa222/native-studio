@@ -4,7 +4,7 @@ A fully native, language-neutral desktop IDE shell built with C++20, Qt 6 Widget
 
 The main window is shown before optional services start. Language plugins and native extensions are then loaded incrementally in interleaved event-loop jobs, while the terminal shell starts asynchronously. This keeps painting and input responsive without moving Qt plugin construction or extension UI callbacks onto unsafe worker threads. The previous window size, maximized/fullscreen state, and dock layout are restored on launch; a first launch opens maximized.
 
-**Settings > Preferences** opens a searchable, native settings center modeled after VS Code. Appearance controls cover dark/light themes and interface sizing; editor controls cover fonts, tabs, wrapping, automatic pairs, and line numbers; terminal controls cover fonts and colors, following the application theme by default. The Plugins page opens both plugin managers, and an optional plugin interface lets each language contribute its own settings page. Python contributes interpreter selection and auto-detection.
+**Settings > Preferences** opens a searchable, native settings center modeled after VS Code. Appearance controls cover dark/light themes and interface sizing; both themes retain the same compact native menu, toolbar, and editor-tab geometry while changing colors. Editor controls cover fonts, tabs, wrapping, automatic pairs, and line numbers; terminal controls cover fonts and colors, following the application theme by default. The Plugins page opens both plugin managers, and an optional plugin interface lets each language contribute its own settings page. Python contributes interpreter selection and auto-detection.
 
 ## Language plugins
 
