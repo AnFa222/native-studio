@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstring>
 #include <limits>
 
 struct ExtensionManager::LoadedExtension
@@ -40,6 +41,14 @@ struct ExtensionManager::RegisteredCommand
     void *userData = nullptr;
 };
 
+struct ExtensionManager::RegisteredEvent
+{
+    LoadedExtension *owner = nullptr;
+    uint32_t type = 0;
+    NsEventCallback callback = nullptr;
+    void *userData = nullptr;
+};
+
 ExtensionManager::ExtensionManager(MainWindow *window, QMenu *extensionsMenu, QObject *parent)
     : QObject(parent), m_window(window), m_extensionsMenu(extensionsMenu)
 {
@@ -53,6 +62,8 @@ ExtensionManager::ExtensionManager(MainWindow *window, QMenu *extensionsMenu, QO
     m_hostApi.insert_text = &ExtensionManager::hostInsertText;
     m_hostApi.replace_document_text = &ExtensionManager::hostReplaceDocumentText;
     m_hostApi.run_process = &ExtensionManager::hostRunProcess;
+    m_hostApi.register_event_listener = &ExtensionManager::hostRegisterEventListener;
+    m_hostApi.get_active_document_text = &ExtensionManager::hostGetActiveDocumentText;
 }
 
 ExtensionManager::~ExtensionManager()
@@ -87,13 +98,14 @@ void ExtensionManager::setDisabledExtensionIds(const QStringList &ids)
 
 QString ExtensionManager::bundledExtensionDirectory()
 {
-    return QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("extensions"));
+    return QDir(QCoreApplication::applicationDirPath())
+        .filePath(QStringLiteral("extensions/bundled"));
 }
 
 QString ExtensionManager::multiConfigExtensionDirectory()
 {
     return QDir(QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("..")))
-        .filePath(QStringLiteral("extensions"));
+        .filePath(QStringLiteral("extensions/bundled"));
 }
 
 QString ExtensionManager::safeInstallBase(const QString &id)
@@ -269,6 +281,7 @@ bool ExtensionManager::loadManifest(const QString &manifestPath, bool bundled)
     }
     if (activationResult != 0) {
         removeCommands(handle);
+        removeEvents(handle);
         if (descriptor->deactivate) {
             try {
                 descriptor->deactivate(descriptor->extension_context);
@@ -317,12 +330,12 @@ void ExtensionManager::loadDefaultExtensionsAsync()
     applyPendingOperations();
     m_pendingManifests.clear();
     m_asyncLoadedCount = 0;
-    queueManifestDirectory(userExtensionDirectory(), false);
     const QString bundled = bundledExtensionDirectory();
     queueManifestDirectory(bundled, true);
     const QString multiConfig = multiConfigExtensionDirectory();
     if (QDir::cleanPath(multiConfig) != QDir::cleanPath(bundled))
         queueManifestDirectory(multiConfig, true);
+    queueManifestDirectory(userExtensionDirectory(), false);
     m_asyncLoading = true;
     QTimer::singleShot(0, this, &ExtensionManager::loadNextManifest);
 }
@@ -343,12 +356,13 @@ int ExtensionManager::loadDefaultExtensions()
 {
     QDir().mkpath(userExtensionDirectory());
     applyPendingOperations();
-    int loaded = loadExtensions(userExtensionDirectory(), false);
+    int loaded = 0;
     const QString bundled = bundledExtensionDirectory();
     loaded += loadExtensions(bundled, true);
     const QString multiConfig = multiConfigExtensionDirectory();
     if (QDir::cleanPath(multiConfig) != QDir::cleanPath(bundled))
         loaded += loadExtensions(multiConfig, true);
+    loaded += loadExtensions(userExtensionDirectory(), false);
     return loaded;
 }
 
@@ -359,6 +373,7 @@ void ExtensionManager::shutdown()
     for (auto iterator = m_extensions.rbegin(); iterator != m_extensions.rend(); ++iterator) {
         LoadedExtension *extension = iterator->get();
         removeCommands(extension);
+        removeEvents(extension);
         if (extension->descriptor && extension->descriptor->deactivate) {
             try {
                 extension->descriptor->deactivate(extension->descriptor->extension_context);
@@ -371,6 +386,7 @@ void ExtensionManager::shutdown()
     }
     m_extensions.clear();
     m_commands.clear();
+    m_events.clear();
 }
 
 QList<NativeExtensionInfo> ExtensionManager::loadedExtensions() const
@@ -393,11 +409,11 @@ QList<NativeExtensionInfo> ExtensionManager::installedExtensions() const
             result.push_back(item);
         }
     };
-    appendUnique(manifestsInDirectory(userExtensionDirectory(), false));
     appendUnique(manifestsInDirectory(bundledExtensionDirectory(), true));
     if (QDir::cleanPath(multiConfigExtensionDirectory())
         != QDir::cleanPath(bundledExtensionDirectory()))
         appendUnique(manifestsInDirectory(multiConfigExtensionDirectory(), true));
+    appendUnique(manifestsInDirectory(userExtensionDirectory(), false));
     std::sort(result.begin(), result.end(), [](const auto &left, const auto &right) {
         return left.name.compare(right.name, Qt::CaseInsensitive) < 0;
     });
@@ -410,6 +426,14 @@ bool ExtensionManager::importExtension(const QString &manifestPath, QString *err
     if (restartRequired) *restartRequired = false;
     NativeExtensionInfo source;
     if (!readManifest(manifestPath, false, &source, error)) return false;
+    const auto bundled = manifestsInDirectory(bundledExtensionDirectory(), true)
+        + manifestsInDirectory(multiConfigExtensionDirectory(), true);
+    if (std::any_of(bundled.cbegin(), bundled.cend(), [&source](const auto &extension) {
+            return extension.id.compare(source.id, Qt::CaseInsensitive) == 0;
+        })) {
+        if (error) *error = tr("Bundled extensions cannot be replaced or updated.");
+        return false;
+    }
 
     QFile manifestFile(manifestPath);
     if (!manifestFile.open(QIODevice::ReadOnly)) {
@@ -582,6 +606,27 @@ QStringList ExtensionManager::commandIds() const
     return result;
 }
 
+void ExtensionManager::notifyDocumentWillSave()
+{
+    if (m_shuttingDown || !m_window) return;
+    const QByteArray activeFile = m_window->activeFilePath().toUtf8();
+    for (const auto &listener : m_events) {
+        if (listener->type != NS_EVENT_DOCUMENT_WILL_SAVE || !listener->callback) continue;
+        const QByteArray documentText = m_window->activeDocumentText().toUtf8();
+        const NsEventContext context{
+            sizeof(NsEventContext),
+            NS_EVENT_DOCUMENT_WILL_SAVE,
+            {activeFile.constData(), static_cast<size_t>(activeFile.size())},
+            {documentText.constData(), static_cast<size_t>(documentText.size())}
+        };
+        try {
+            listener->callback(listener->userData, &context);
+        } catch (...) {
+            qWarning() << "Native extension event callback threw an exception";
+        }
+    }
+}
+
 QString ExtensionManager::userExtensionDirectory()
 {
     return QDir(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation))
@@ -628,6 +673,19 @@ bool ExtensionManager::registerCommand(LoadedExtension *owner, const NsCommandSp
     return true;
 }
 
+bool ExtensionManager::registerEvent(LoadedExtension *owner, uint32_t eventType,
+                                     NsEventCallback callback, void *userData)
+{
+    if (!owner || !callback || eventType != NS_EVENT_DOCUMENT_WILL_SAVE) return false;
+    auto listener = std::make_unique<RegisteredEvent>();
+    listener->owner = owner;
+    listener->type = eventType;
+    listener->callback = callback;
+    listener->userData = userData;
+    m_events.push_back(std::move(listener));
+    return true;
+}
+
 void ExtensionManager::triggerCommand(RegisteredCommand *command)
 {
     if (!command || !command->callback || m_shuttingDown) return;
@@ -657,6 +715,13 @@ void ExtensionManager::removeCommands(LoadedExtension *owner)
             return true;
         });
     m_commands.erase(firstRemoved, m_commands.end());
+}
+
+void ExtensionManager::removeEvents(LoadedExtension *owner)
+{
+    const auto firstRemoved = std::remove_if(m_events.begin(), m_events.end(),
+        [owner](const auto &event) { return event->owner == owner; });
+    m_events.erase(firstRemoved, m_events.end());
 }
 
 int32_t ExtensionManager::hostRegisterCommand(void *hostContext, NsExtensionHandle extension,
@@ -724,4 +789,30 @@ int32_t ExtensionManager::hostRunProcess(void *hostContext, NsStringView program
         convertedArguments.push_back(fromView(arguments[index]));
     return manager->m_window->runExtensionProcess(fromView(program), convertedArguments,
                                                    fromView(workingDirectory)) ? 1 : 0;
+}
+
+int32_t ExtensionManager::hostRegisterEventListener(void *hostContext,
+                                                    NsExtensionHandle extension,
+                                                    uint32_t eventType,
+                                                    NsEventCallback callback,
+                                                    void *userData)
+{
+    auto *manager = static_cast<ExtensionManager *>(hostContext);
+    auto *owner = static_cast<LoadedExtension *>(extension);
+    if (!manager || manager->m_shuttingDown) return 0;
+    const bool knownOwner = std::any_of(manager->m_extensions.cbegin(), manager->m_extensions.cend(),
+        [owner](const auto &candidate) { return candidate.get() == owner; });
+    return knownOwner && manager->registerEvent(owner, eventType, callback, userData) ? 1 : 0;
+}
+
+size_t ExtensionManager::hostGetActiveDocumentText(void *hostContext, char *buffer,
+                                                   size_t capacity)
+{
+    auto *manager = static_cast<ExtensionManager *>(hostContext);
+    if (!manager || !manager->m_window) return 0;
+    const QByteArray text = manager->m_window->activeDocumentText().toUtf8();
+    const size_t required = static_cast<size_t>(text.size());
+    if (buffer && capacity >= required && required > 0)
+        std::memcpy(buffer, text.constData(), required);
+    return required;
 }

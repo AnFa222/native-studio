@@ -166,9 +166,12 @@ void ExtensionManagerDialog::updateSelection()
         return;
     }
     m_toggle->setText(found->enabled ? tr("Disable") : tr("Enable"));
-    m_details->setText(tr("%1%2\nManifest: %3")
+    const QString policy = found->bundled
+        ? tr("\nBundled extension: it can be disabled, but not removed.") : QString{};
+    m_details->setText(tr("%1%2%3\nManifest: %4")
         .arg(found->description,
              found->author.isEmpty() ? QString{} : tr(" — %1").arg(found->author),
+             policy,
              QDir::toNativeSeparators(found->manifestPath)));
 }
 

@@ -33,6 +33,7 @@ public:
     [[nodiscard]] QString activeFilePath() const;
     [[nodiscard]] QString projectDirectory() const;
     [[nodiscard]] bool activeDocumentModified() const;
+    [[nodiscard]] QString activeDocumentText() const;
     void startDeferredServices();
     void loadServicesNow();
     bool restoreWindowLayout();

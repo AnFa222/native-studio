@@ -185,6 +185,11 @@ bool MainWindow::activeDocumentModified() const
     const auto *editor = currentEditor();
     return editor && editor->document()->isModified();
 }
+QString MainWindow::activeDocumentText() const
+{
+    const auto *editor = currentEditor();
+    return editor ? editor->toPlainText() : QString{};
+}
 void MainWindow::showExtensionMessage(const QString &message, int timeoutMs)
 {
     statusBar()->showMessage(message, qMax(0, timeoutMs));
@@ -246,7 +251,9 @@ void MainWindow::createActions()
     addAction(tr("&New"), QKeySequence::New, this, &MainWindow::createFile);
     addAction(tr("&Open File..."), QKeySequence::Open, this, &MainWindow::chooseFile);
     fileMenu->addSeparator();
-    addAction(tr("&Save"), QKeySequence::Save, this, &MainWindow::saveCurrentFile);
+    auto *saveAction = addAction(tr("&Save"), QKeySequence::Save,
+                                 this, &MainWindow::saveCurrentFile);
+    saveAction->setObjectName(QStringLiteral("saveFileAction"));
     addAction(tr("Save &As..."), QKeySequence::SaveAs, this, &MainWindow::saveCurrentFileAs);
     auto *toolbarSpacer = new QWidget(toolbar);
     toolbarSpacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
@@ -550,6 +557,8 @@ bool MainWindow::saveEditor(CodeEditor *editor, bool forceDialog)
             tr("All Files (*)"));
         if (path.isEmpty()) return false;
     }
+    m_tabs->setCurrentWidget(editor);
+    if (m_extensionManager) m_extensionManager->notifyDocumentWillSave();
     QString error;
     if (!editor->saveToFile(path, &error)) {
         QMessageBox::critical(this, tr("Could Not Save File"), tr("%1\n\n%2").arg(path, error));

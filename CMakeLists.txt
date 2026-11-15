@@ -3,7 +3,7 @@ if(POLICY CMP0141)
     cmake_policy(SET CMP0141 NEW)
 endif()
 
-project(NativeStudio VERSION 0.12.3 LANGUAGES CXX)
+project(NativeStudio VERSION 0.13.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -56,6 +56,9 @@ set_target_properties(NativeStudio PROPERTIES
     OUTPUT_NAME "Native Studio"
 )
 
+set(BUNDLED_EXTENSION_BUILD_DIR "${CMAKE_BINARY_DIR}/extensions/bundled")
+file(MAKE_DIRECTORY "${BUNDLED_EXTENSION_BUILD_DIR}")
+
 add_library(native_hello_extension MODULE
     extensions/hello/hello_extension.cpp
     src/extension_api.h
@@ -64,19 +67,36 @@ target_include_directories(native_hello_extension PRIVATE "${CMAKE_CURRENT_SOURC
 set_target_properties(native_hello_extension PROPERTIES
     PREFIX ""
     OUTPUT_NAME "native_hello"
-    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/extensions"
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/extensions"
-    LIBRARY_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/extensions"
-    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/extensions"
+    LIBRARY_OUTPUT_DIRECTORY "${BUNDLED_EXTENSION_BUILD_DIR}"
+    RUNTIME_OUTPUT_DIRECTORY "${BUNDLED_EXTENSION_BUILD_DIR}"
+    LIBRARY_OUTPUT_DIRECTORY_RELEASE "${BUNDLED_EXTENSION_BUILD_DIR}"
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${BUNDLED_EXTENSION_BUILD_DIR}"
 )
-file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/extensions")
 configure_file(extensions/hello/extension.json
-               "${CMAKE_BINARY_DIR}/extensions/native_hello.json" COPYONLY)
-if(MSVC)
-    target_compile_options(native_hello_extension PRIVATE /W4 /permissive-)
-else()
-    target_compile_options(native_hello_extension PRIVATE -Wall -Wextra -Wpedantic)
-endif()
+               "${BUNDLED_EXTENSION_BUILD_DIR}/native_hello.json" COPYONLY)
+
+add_library(native_code_tidy_extension MODULE
+    extensions/code_tidy/code_tidy_extension.cpp
+    src/extension_api.h
+)
+target_include_directories(native_code_tidy_extension PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+set_target_properties(native_code_tidy_extension PROPERTIES
+    PREFIX ""
+    OUTPUT_NAME "native_code_tidy"
+    LIBRARY_OUTPUT_DIRECTORY "${BUNDLED_EXTENSION_BUILD_DIR}"
+    RUNTIME_OUTPUT_DIRECTORY "${BUNDLED_EXTENSION_BUILD_DIR}"
+    LIBRARY_OUTPUT_DIRECTORY_RELEASE "${BUNDLED_EXTENSION_BUILD_DIR}"
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${BUNDLED_EXTENSION_BUILD_DIR}"
+)
+configure_file(extensions/code_tidy/extension.json
+               "${BUNDLED_EXTENSION_BUILD_DIR}/native_code_tidy.json" COPYONLY)
+foreach(extension_target IN ITEMS native_hello_extension native_code_tidy_extension)
+    if(MSVC)
+        target_compile_options(${extension_target} PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(${extension_target} PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+endforeach()
 
 qt_add_plugin(language_cpp MODULE
     CLASS_NAME CppLanguagePlugin
@@ -129,7 +149,7 @@ if(BUILD_TESTING)
         tests/editor_tests.cpp
     )
     target_link_libraries(nativeide_tests PRIVATE nativeide_core Qt6::Test)
-    add_dependencies(nativeide_tests native_hello_extension)
+    add_dependencies(nativeide_tests native_hello_extension native_code_tidy_extension)
     add_test(NAME nativeide_tests COMMAND nativeide_tests)
     set_tests_properties(nativeide_tests PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
@@ -149,9 +169,15 @@ install(TARGETS language_python
     RUNTIME DESTINATION bin/plugins/languages
 )
 install(TARGETS native_hello_extension
-    LIBRARY DESTINATION bin/extensions
-    RUNTIME DESTINATION bin/extensions
+    LIBRARY DESTINATION bin/extensions/bundled
+    RUNTIME DESTINATION bin/extensions/bundled
 )
 install(FILES extensions/hello/extension.json
-        DESTINATION bin/extensions RENAME native_hello.json)
+        DESTINATION bin/extensions/bundled RENAME native_hello.json)
+install(TARGETS native_code_tidy_extension
+    LIBRARY DESTINATION bin/extensions/bundled
+    RUNTIME DESTINATION bin/extensions/bundled
+)
+install(FILES extensions/code_tidy/extension.json
+        DESTINATION bin/extensions/bundled RENAME native_code_tidy.json)
 install(FILES src/languageplugin.h src/extension_api.h src/EXTENSION_ABI.md DESTINATION sdk)

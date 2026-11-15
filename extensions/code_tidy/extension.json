@@ -1,0 +1,14 @@
+{
+    "manifestVersion": 1,
+    "id": "dev.nativestudio.code_tidy",
+    "name": "Code Tidy",
+    "version": "1.0.0",
+    "abiVersion": 1,
+    "description": "Native format-on-save extension that cleans indentation, trailing whitespace, line endings, and final blank lines.",
+    "author": "Native Studio",
+    "binary": {
+        "windows": "native_code_tidy.dll",
+        "linux": "native_code_tidy.so",
+        "macos": "native_code_tidy.dylib"
+    }
+}

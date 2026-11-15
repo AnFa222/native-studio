@@ -45,6 +45,7 @@ public:
     [[nodiscard]] QList<NativeExtensionInfo> loadedExtensions() const;
     [[nodiscard]] QList<NativeExtensionInfo> installedExtensions() const;
     [[nodiscard]] QStringList commandIds() const;
+    void notifyDocumentWillSave();
     bool importExtension(const QString &manifestPath, QString *error = nullptr,
                          bool *restartRequired = nullptr);
     bool setExtensionEnabled(const QString &id, bool enabled, QString *error = nullptr);
@@ -59,6 +60,7 @@ signals:
 private:
     struct LoadedExtension;
     struct RegisteredCommand;
+    struct RegisteredEvent;
     struct PendingManifest {
         QString filePath;
         bool bundled = false;
@@ -79,8 +81,11 @@ private:
     void loadNextManifest();
     [[nodiscard]] bool containsExtension(const QString &id) const;
     bool registerCommand(LoadedExtension *owner, const NsCommandSpec *command);
+    bool registerEvent(LoadedExtension *owner, uint32_t eventType,
+                       NsEventCallback callback, void *userData);
     void triggerCommand(RegisteredCommand *command);
     void removeCommands(LoadedExtension *owner);
+    void removeEvents(LoadedExtension *owner);
     [[nodiscard]] QMenu *commandMenu(const QString &category);
 
     static int32_t hostRegisterCommand(void *hostContext, NsExtensionHandle extension,
@@ -93,12 +98,17 @@ private:
     static int32_t hostRunProcess(void *hostContext, NsStringView program,
                                   const NsStringView *arguments, size_t argumentCount,
                                   NsStringView workingDirectory);
+    static int32_t hostRegisterEventListener(void *hostContext, NsExtensionHandle extension,
+                                             uint32_t eventType, NsEventCallback callback,
+                                             void *userData);
+    static size_t hostGetActiveDocumentText(void *hostContext, char *buffer, size_t capacity);
 
     MainWindow *m_window = nullptr;
     QMenu *m_extensionsMenu = nullptr;
     NsHostApi m_hostApi{};
     std::vector<std::unique_ptr<LoadedExtension>> m_extensions;
     std::vector<std::unique_ptr<RegisteredCommand>> m_commands;
+    std::vector<std::unique_ptr<RegisteredEvent>> m_events;
     QList<PendingManifest> m_pendingManifests;
     int m_asyncLoadedCount = 0;
     bool m_asyncLoading = false;

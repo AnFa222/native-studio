@@ -41,6 +41,17 @@ typedef struct NsCommandContext {
 
 typedef void (*NsCommandCallback)(void *user_data, const NsCommandContext *context);
 
+#define NS_EVENT_DOCUMENT_WILL_SAVE 1u
+
+typedef struct NsEventContext {
+    uint32_t struct_size;
+    uint32_t event_type;
+    NsStringView active_file_path;
+    NsStringView document_text;
+} NsEventContext;
+
+typedef void (*NsEventCallback)(void *user_data, const NsEventContext *context);
+
 typedef struct NsCommandSpec {
     uint32_t struct_size;
     NsStringView id;
@@ -66,6 +77,10 @@ typedef struct NsHostApi {
     int32_t (*run_process)(void *host_context, NsStringView program,
                            const NsStringView *arguments, size_t argument_count,
                            NsStringView working_directory);
+    int32_t (*register_event_listener)(void *host_context, NsExtensionHandle extension,
+                                       uint32_t event_type, NsEventCallback callback,
+                                       void *user_data);
+    size_t (*get_active_document_text)(void *host_context, char *buffer, size_t capacity);
 } NsHostApi;
 
 typedef int32_t (*NsActivateCallback)(void *extension_context, const NsHostApi *host,

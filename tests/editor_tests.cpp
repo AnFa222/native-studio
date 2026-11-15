@@ -105,6 +105,7 @@ private slots:
     void lineNumberGutterTracksDocument();
     void pluginExplorerHasMarketplaceControls();
     void loadsNativeBinaryExtension();
+    void codeTidyFormatsDocumentAndSave();
     void extensionManagerShowsManifestControls();
     void settingsCenterIncludesCoreAndPluginPages();
     void lightThemeUsesDarkText();
@@ -149,6 +150,9 @@ void EditorTests::loadsServicesIncrementally()
     const auto extensions = window.extensionManager()->loadedExtensions();
     QVERIFY(std::any_of(extensions.cbegin(), extensions.cend(), [](const auto &extension) {
         return extension.id == QStringLiteral("dev.nativestudio.hello");
+    }));
+    QVERIFY(std::any_of(extensions.cbegin(), extensions.cend(), [](const auto &extension) {
+        return extension.id == QStringLiteral("dev.nativestudio.code_tidy");
     }));
 }
 
@@ -441,6 +445,9 @@ void EditorTests::loadsNativeBinaryExtension()
     QCOMPARE(installedHello->abiVersion, uint32_t(NS_EXTENSION_ABI_VERSION));
     QVERIFY(QFileInfo::exists(installedHello->manifestPath));
     QVERIFY(installedHello->loaded);
+    QVERIFY(installedHello->bundled);
+    QVERIFY(QDir::fromNativeSeparators(installedHello->manifestPath)
+                .contains(QStringLiteral("/extensions/bundled/")));
     const QString commandId = QStringLiteral("dev.nativestudio.hello.say_hello");
     QVERIFY(manager->commandIds().contains(commandId));
     auto *action = window.findChild<QAction *>(QStringLiteral("extensionCommand.%1").arg(commandId));
@@ -456,6 +463,57 @@ void EditorTests::loadsNativeBinaryExtension()
     auto *editor = qobject_cast<CodeEditor *>(window.editorTabs()->currentWidget());
     QVERIFY(editor != nullptr);
     QCOMPARE(editor->toPlainText(), QStringLiteral("Hello from Native Hello"));
+}
+
+void EditorTests::codeTidyFormatsDocumentAndSave()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString path = directory.filePath(QStringLiteral("tidy.cpp"));
+    QFile seed(path);
+    QVERIFY(seed.open(QIODevice::WriteOnly));
+    seed.write("int original;\n");
+    seed.close();
+
+    MainWindow window;
+    window.loadServicesNow();
+    auto *manager = window.extensionManager();
+    const auto installed = manager->installedExtensions();
+    const auto tidy = std::find_if(installed.cbegin(), installed.cend(), [](const auto &extension) {
+        return extension.id == QStringLiteral("dev.nativestudio.code_tidy");
+    });
+    QVERIFY(tidy != installed.cend());
+    QVERIFY(tidy->bundled);
+    QVERIFY(tidy->loaded);
+    QVERIFY(QDir::fromNativeSeparators(tidy->manifestPath)
+                .contains(QStringLiteral("/extensions/bundled/")));
+    QString removalError;
+    QVERIFY(!manager->removeExtension(tidy->id, &removalError));
+    QVERIFY(removalError.contains(QStringLiteral("disabled"), Qt::CaseInsensitive));
+    QString updateError;
+    QVERIFY(!manager->importExtension(tidy->manifestPath, &updateError));
+    QVERIFY(updateError.contains(QStringLiteral("cannot be replaced"), Qt::CaseInsensitive));
+
+    window.openFile(path);
+    auto *editor = qobject_cast<CodeEditor *>(window.editorTabs()->currentWidget());
+    QVERIFY(editor != nullptr);
+    editor->setPlainText(QStringLiteral("\tint value = 1;   \n\n\n"));
+    const QString commandId = QStringLiteral("dev.nativestudio.code_tidy.format_document");
+    auto *formatAction = window.findChild<QAction *>(
+        QStringLiteral("extensionCommand.%1").arg(commandId));
+    QVERIFY(formatAction != nullptr);
+    formatAction->trigger();
+    QCOMPARE(editor->toPlainText(), QStringLiteral("    int value = 1;\n"));
+
+    editor->setPlainText(QStringLiteral("\tint saved = 2; \t\n\n"));
+    auto *saveAction = window.findChild<QAction *>(QStringLiteral("saveFileAction"));
+    QVERIFY(saveAction != nullptr);
+    saveAction->trigger();
+    QFile saved(path);
+    QVERIFY(saved.open(QIODevice::ReadOnly));
+    QString savedText = QString::fromUtf8(saved.readAll());
+    savedText.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+    QCOMPARE(savedText, QStringLiteral("    int saved = 2;\n"));
 }
 
 void EditorTests::extensionManagerShowsManifestControls()
@@ -476,7 +534,19 @@ void EditorTests::extensionManagerShowsManifestControls()
     QVERIFY(toggle != nullptr);
     QVERIFY(remove != nullptr);
     QCOMPARE(table->columnCount(), 6);
-    QVERIFY(table->rowCount() >= 1);
+    QVERIFY(table->rowCount() >= 2);
+    int bundledRow = -1;
+    for (int row = 0; row < table->rowCount(); ++row) {
+        if (table->item(row, 1)->text() == QStringLiteral("dev.nativestudio.code_tidy")) {
+            bundledRow = row;
+            break;
+        }
+    }
+    QVERIFY(bundledRow >= 0);
+    table->selectRow(bundledRow);
+    QCoreApplication::processEvents();
+    QVERIFY(toggle->isEnabled());
+    QVERIFY(!remove->isEnabled());
 }
 
 void EditorTests::settingsCenterIncludesCoreAndPluginPages()
