@@ -17,6 +17,7 @@
 #include <QSignalSpy>
 #include <QStatusBar>
 #include <QLineEdit>
+#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QTableWidget>
 #include <QTest>
@@ -25,6 +26,7 @@
 #include <QTextDocument>
 #include <QTextLayout>
 #include <QTreeWidget>
+#include <QToolButton>
 
 #include <algorithm>
 
@@ -42,6 +44,8 @@ private slots:
     void loadsPythonPlugin();
     void unknownLanguageUsesPlainText();
     void terminalRunsProgram();
+    void terminalAcceptsPythonInput();
+    void terminalTerminatesRunningProgram();
     void runActionTracksSupportedFile();
     void lineNumberGutterTracksDocument();
     void pluginExplorerHasMarketplaceControls();
@@ -189,6 +193,7 @@ void EditorTests::loadsPythonPlugin()
     QCOMPARE(window.languageManager()->languageForFile(path), QStringLiteral("Python"));
     const auto runConfiguration = window.languageManager()->runConfiguration(path);
     QVERIFY(runConfiguration.isValid());
+    QVERIFY(runConfiguration.arguments.contains(QStringLiteral("-u")));
     QVERIFY(runConfiguration.arguments.contains(QFileInfo(path).absoluteFilePath()));
     window.openFile(path);
     auto *editor = qobject_cast<CodeEditor *>(window.editorTabs()->currentWidget());
@@ -209,6 +214,10 @@ void EditorTests::terminalRunsProgram()
 {
     MainWindow window;
     window.loadServicesNow();
+    QVERIFY(window.terminal()->findChild<QLineEdit *>(QStringLiteral("terminalInput")) == nullptr);
+    QVERIFY(window.terminal()->findChild<QPlainTextEdit *>(QStringLiteral("terminalOutput")) != nullptr);
+    QVERIFY(window.terminal()->findChild<QToolButton *>(
+        QStringLiteral("terminateTerminalButton")) != nullptr);
     QSignalSpy finished(window.terminal(), &TerminalWidget::commandFinished);
 #ifdef Q_OS_WIN
     window.terminal()->executeProgram(QStringLiteral("cmd.exe"),
@@ -219,6 +228,62 @@ void EditorTests::terminalRunsProgram()
 #endif
     QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 5000);
     QVERIFY(window.terminal()->outputText().contains(QStringLiteral("terminal-ready")));
+}
+
+void EditorTests::terminalAcceptsPythonInput()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString path = directory.filePath(QStringLiteral("interactive.py"));
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("name = input('Name: ')\nprint(f'Hello {name}', flush=True)\n");
+    file.close();
+
+    MainWindow window;
+    window.loadServicesNow();
+    window.show();
+    const auto configuration = window.languageManager()->runConfiguration(path);
+    QVERIFY(configuration.isValid());
+    auto *view = window.terminal()->findChild<QPlainTextEdit *>(QStringLiteral("terminalOutput"));
+    QVERIFY(view != nullptr);
+    QSignalSpy finished(window.terminal(), &TerminalWidget::commandFinished);
+    window.terminal()->executeProgram(configuration.program, configuration.arguments,
+                                      configuration.workingDirectory);
+    QTRY_VERIFY_WITH_TIMEOUT(window.terminal()->outputText().contains(QStringLiteral("Name: ")),
+                             5000);
+    view->setFocus();
+    QTest::keyClicks(view, QStringLiteral("Native"));
+    QTest::keyClick(view, Qt::Key_Return);
+    QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 5000);
+    QVERIFY(window.terminal()->outputText().contains(QStringLiteral("Hello Native")));
+}
+
+void EditorTests::terminalTerminatesRunningProgram()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString path = directory.filePath(QStringLiteral("long_running.py"));
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("import time\nprint('waiting', flush=True)\ntime.sleep(30)\n");
+    file.close();
+
+    MainWindow window;
+    window.loadServicesNow();
+    const auto configuration = window.languageManager()->runConfiguration(path);
+    auto *terminate = window.terminal()->findChild<QToolButton *>(
+        QStringLiteral("terminateTerminalButton"));
+    QVERIFY(terminate != nullptr);
+    QSignalSpy finished(window.terminal(), &TerminalWidget::commandFinished);
+    window.terminal()->executeProgram(configuration.program, configuration.arguments,
+                                      configuration.workingDirectory);
+    QTRY_VERIFY_WITH_TIMEOUT(window.terminal()->outputText().contains(QStringLiteral("waiting")),
+                             5000);
+    QVERIFY(terminate->isEnabled());
+    terminate->click();
+    QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 5000);
+    QVERIFY(window.terminal()->outputText().contains(QStringLiteral("Terminating")));
 }
 
 void EditorTests::runActionTracksSupportedFile()

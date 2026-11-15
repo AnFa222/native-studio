@@ -20,6 +20,7 @@
 #include <QPainter>
 #include <QPixmap>
 #include <QStatusBar>
+#include <QSettings>
 #include <QTabWidget>
 #include <QTextBlock>
 #include <QTextCursor>
@@ -121,6 +122,15 @@ ProjectExplorer *MainWindow::projectExplorer() const { return m_projectExplorer;
 LanguageManager *MainWindow::languageManager() const { return m_languageManager; }
 ExtensionManager *MainWindow::extensionManager() const { return m_extensionManager; }
 TerminalWidget *MainWindow::terminal() const { return m_terminal; }
+bool MainWindow::restoreWindowLayout()
+{
+    QSettings settings;
+    if (!settings.contains(QStringLiteral("window/geometry"))) return false;
+    const bool restored = restoreGeometry(settings.value(QStringLiteral("window/geometry")).toByteArray());
+    restoreState(settings.value(QStringLiteral("window/state")).toByteArray());
+    return restored;
+}
+
 void MainWindow::startDeferredServices()
 {
     if (m_servicesStarted) return;
@@ -592,5 +602,8 @@ void MainWindow::closeEvent(QCloseEvent *event)
             return;
         }
     }
+    QSettings settings;
+    settings.setValue(QStringLiteral("window/geometry"), saveGeometry());
+    settings.setValue(QStringLiteral("window/state"), saveState());
     event->accept();
 }

@@ -33,6 +33,7 @@ public:
     [[nodiscard]] bool activeDocumentModified() const;
     void startDeferredServices();
     void loadServicesNow();
+    bool restoreWindowLayout();
     void showExtensionMessage(const QString &message, int timeoutMs = 3000);
     bool insertExtensionText(const QString &text);
     bool replaceExtensionDocument(const QString &text);

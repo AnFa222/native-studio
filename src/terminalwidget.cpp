@@ -1,52 +1,67 @@
 #include "terminalwidget.h"
 
 #include <QDir>
+#include <QEvent>
 #include <QFileInfo>
 #include <QFontDatabase>
 #include <QHBoxLayout>
+#include <QKeyEvent>
+#include <QKeySequence>
 #include <QLabel>
-#include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QProcess>
 #include <QScrollBar>
+#include <QTimer>
+#include <QToolButton>
 #include <QVBoxLayout>
 
 TerminalWidget::TerminalWidget(QWidget *parent)
     : QWidget(parent)
     , m_output(new QPlainTextEdit(this))
-    , m_input(new QLineEdit(this))
+    , m_terminateButton(new QToolButton(this))
     , m_shell(new QProcess(this))
     , m_runner(new QProcess(this))
     , m_workingDirectory(QDir::currentPath())
 {
     const auto font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
     m_output->setObjectName(QStringLiteral("terminalOutput"));
-    m_output->setReadOnly(true);
+    m_output->setReadOnly(false);
     m_output->setUndoRedoEnabled(false);
     m_output->setMaximumBlockCount(10000);
     m_output->setFont(font);
-    m_input->setObjectName(QStringLiteral("terminalInput"));
-    m_input->setFont(font);
-    m_input->setPlaceholderText(tr("Enter a shell command"));
+    m_output->setPlaceholderText(tr("Type commands directly in the terminal"));
+    m_output->installEventFilter(this);
 
-    auto *prompt = new QLabel(QStringLiteral(">"), this);
-    prompt->setFont(font);
-    auto *inputLayout = new QHBoxLayout;
-    inputLayout->setContentsMargins(8, 3, 8, 6);
-    inputLayout->addWidget(prompt);
-    inputLayout->addWidget(m_input);
+    auto *header = new QHBoxLayout;
+    header->setContentsMargins(8, 4, 6, 4);
+    auto *title = new QLabel(tr("TERMINAL"), this);
+    title->setObjectName(QStringLiteral("terminalHeader"));
+    m_terminateButton->setObjectName(QStringLiteral("terminateTerminalButton"));
+    m_terminateButton->setText(tr("■ Terminate"));
+    m_terminateButton->setToolTip(tr("Terminate the running program or shell"));
+    m_terminateButton->setAutoRaise(true);
+    header->addWidget(title);
+    header->addStretch();
+    header->addWidget(m_terminateButton);
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
+    layout->addLayout(header);
     layout->addWidget(m_output);
-    layout->addLayout(inputLayout);
 
     m_shell->setProcessChannelMode(QProcess::MergedChannels);
     m_runner->setProcessChannelMode(QProcess::MergedChannels);
-    connect(m_input, &QLineEdit::returnPressed, this, &TerminalWidget::submitCommand);
+    connect(m_terminateButton, &QToolButton::clicked,
+            this, &TerminalWidget::terminateActiveProcess);
     connect(m_shell, &QProcess::readyReadStandardOutput, this, &TerminalWidget::readShellOutput);
     connect(m_runner, &QProcess::readyReadStandardOutput, this, &TerminalWidget::readRunnerOutput);
+    connect(m_shell, &QProcess::stateChanged, this, &TerminalWidget::updateTerminateButton);
+    connect(m_runner, &QProcess::stateChanged, this, &TerminalWidget::updateTerminateButton);
+    connect(m_shell, &QProcess::finished, this, [this] {
+        m_shellStarted = false;
+        updateTerminateButton();
+    });
     connect(m_runner, &QProcess::finished, this, [this](int exitCode, QProcess::ExitStatus) {
         readRunnerOutput();
         appendMessage(tr("\n[Process exited with code %1]\n").arg(exitCode));
@@ -58,6 +73,7 @@ TerminalWidget::TerminalWidget(QWidget *parent)
     connect(m_runner, &QProcess::errorOccurred, this, [this](QProcess::ProcessError) {
         appendMessage(tr("[Run error: %1]\n").arg(m_runner->errorString()));
     });
+    updateTerminateButton();
 }
 
 TerminalWidget::~TerminalWidget()
@@ -103,20 +119,86 @@ void TerminalWidget::setWorkingDirectory(const QString &directory)
     }
 }
 
-void TerminalWidget::submitCommand()
+QString TerminalWidget::currentInput() const
 {
-    const QString command = m_input->text();
-    if (command.trimmed().isEmpty()) return;
-    startShell();
-    appendMessage(QStringLiteral("> %1\n").arg(command));
-    m_shell->write((command +
+    QTextCursor cursor(m_output->document());
+    cursor.setPosition(qBound(0, m_inputStart, m_output->document()->characterCount() - 1));
+    cursor.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
+    QString input = cursor.selectedText();
+    input.replace(QChar(0x2029), QLatin1Char('\n'));
+    return input;
+}
+
+void TerminalWidget::replaceCurrentInput(const QString &text)
+{
+    QTextCursor cursor(m_output->document());
+    cursor.setPosition(qBound(0, m_inputStart, m_output->document()->characterCount() - 1));
+    cursor.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
+    cursor.removeSelectedText();
+    cursor.insertText(text);
+    m_output->setTextCursor(cursor);
+}
+
+void TerminalWidget::moveCursorToInput()
+{
+    QTextCursor cursor = m_output->textCursor();
+    if (cursor.selectionStart() < m_inputStart || cursor.position() < m_inputStart) {
+        cursor.clearSelection();
+        cursor.movePosition(QTextCursor::End);
+        m_output->setTextCursor(cursor);
+    }
+}
+
+void TerminalWidget::submitCurrentInput()
+{
+    const QString input = currentInput();
+    QTextCursor cursor(m_output->document());
+    cursor.movePosition(QTextCursor::End);
+    cursor.insertText(QStringLiteral("\n"));
+    m_output->setTextCursor(cursor);
+    m_inputStart = cursor.position();
+
+    if (!input.trimmed().isEmpty()) {
+        if (m_history.isEmpty() || m_history.constLast() != input) m_history.push_back(input);
+        m_historyIndex = m_history.size();
+    }
+    const QByteArray payload = (input +
 #ifdef Q_OS_WIN
-                    QStringLiteral("\r\n")
+                                QStringLiteral("\r\n")
 #else
-                    QStringLiteral("\n")
+                                QStringLiteral("\n")
 #endif
-                    ).toUtf8());
-    m_input->clear();
+                                ).toUtf8();
+
+    QProcess *target = m_runner->state() != QProcess::NotRunning ? m_runner : m_shell;
+    if (target == m_shell) startShell();
+    if (target->state() == QProcess::Starting) {
+        connect(target, &QProcess::started, target, [target, payload] { target->write(payload); },
+                Qt::SingleShotConnection);
+    } else if (target->state() == QProcess::Running) {
+        target->write(payload);
+    }
+}
+
+void TerminalWidget::terminateActiveProcess()
+{
+    QProcess *target = nullptr;
+    if (m_runner->state() != QProcess::NotRunning) target = m_runner;
+    else if (m_shell->state() != QProcess::NotRunning) target = m_shell;
+    if (!target) return;
+
+    appendMessage(target == m_runner ? tr("\n[Terminating running program…]\n")
+                                     : tr("\n[Terminating terminal shell…]\n"));
+    target->terminate();
+    QTimer::singleShot(750, target, [target] {
+        if (target->state() != QProcess::NotRunning) target->kill();
+    });
+}
+
+void TerminalWidget::updateTerminateButton()
+{
+    m_terminateButton->setEnabled(m_runner->state() != QProcess::NotRunning
+                                  || m_shell->state() != QProcess::NotRunning);
 }
 
 void TerminalWidget::executeProgram(const QString &program, const QStringList &arguments,
@@ -130,6 +212,8 @@ void TerminalWidget::executeProgram(const QString &program, const QStringList &a
     m_runner->setWorkingDirectory(directory);
     appendMessage(tr("\n[Running %1 %2]\n").arg(program, arguments.join(QLatin1Char(' '))));
     m_runner->start(program, arguments);
+    moveCursorToInput();
+    m_output->setFocus();
 }
 
 QString TerminalWidget::outputText() const { return m_output->toPlainText(); }
@@ -143,7 +227,70 @@ void TerminalWidget::appendOutput(const QByteArray &bytes)
 
 void TerminalWidget::appendMessage(const QString &message)
 {
-    m_output->moveCursor(QTextCursor::End);
-    m_output->insertPlainText(message);
+    const QString pendingInput = currentInput();
+    QTextCursor cursor(m_output->document());
+    cursor.setPosition(qBound(0, m_inputStart, m_output->document()->characterCount() - 1));
+    cursor.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
+    cursor.removeSelectedText();
+    cursor.insertText(message);
+    m_inputStart = cursor.position();
+    cursor.insertText(pendingInput);
+    m_output->setTextCursor(cursor);
     m_output->verticalScrollBar()->setValue(m_output->verticalScrollBar()->maximum());
+}
+
+bool TerminalWidget::eventFilter(QObject *watched, QEvent *event)
+{
+    if (watched != m_output || event->type() != QEvent::KeyPress)
+        return QWidget::eventFilter(watched, event);
+
+    auto *key = static_cast<QKeyEvent *>(event);
+    if (key->matches(QKeySequence::Copy)) {
+        if (m_output->textCursor().hasSelection())
+            return QWidget::eventFilter(watched, event);
+        terminateActiveProcess();
+        return true;
+    }
+    if (key->matches(QKeySequence::SelectAll)) {
+        QTextCursor cursor(m_output->document());
+        cursor.setPosition(qBound(0, m_inputStart, m_output->document()->characterCount() - 1));
+        cursor.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
+        m_output->setTextCursor(cursor);
+        return true;
+    }
+    if (key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter) {
+        submitCurrentInput();
+        return true;
+    }
+    if (key->key() == Qt::Key_Up && key->modifiers() == Qt::NoModifier) {
+        if (!m_history.isEmpty()) {
+            m_historyIndex = qMax(0, m_historyIndex - 1);
+            replaceCurrentInput(m_history.at(m_historyIndex));
+        }
+        return true;
+    }
+    if (key->key() == Qt::Key_Down && key->modifiers() == Qt::NoModifier) {
+        if (m_historyIndex < m_history.size() - 1) {
+            replaceCurrentInput(m_history.at(++m_historyIndex));
+        } else {
+            m_historyIndex = m_history.size();
+            replaceCurrentInput({});
+        }
+        return true;
+    }
+    if (key->key() == Qt::Key_Home && key->modifiers() == Qt::NoModifier) {
+        QTextCursor cursor = m_output->textCursor();
+        cursor.setPosition(m_inputStart);
+        m_output->setTextCursor(cursor);
+        return true;
+    }
+    if ((key->key() == Qt::Key_Backspace || key->key() == Qt::Key_Left)
+        && !m_output->textCursor().hasSelection()
+        && m_output->textCursor().position() <= m_inputStart) return true;
+
+    const bool editsText = !key->text().isEmpty() || key->key() == Qt::Key_Backspace
+        || key->key() == Qt::Key_Delete || key->matches(QKeySequence::Paste)
+        || key->matches(QKeySequence::Cut);
+    if (editsText) moveCursorToInput();
+    return QWidget::eventFilter(watched, event);
 }

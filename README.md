@@ -2,7 +2,7 @@
 
 A fully native, language-neutral desktop IDE shell built with C++20, Qt 6 Widgets, and CMake. It provides a tabbed text editor, UTF-8 atomic saves, unsaved-change protection, a VS Code-style workspace explorer, and dynamically loadable language plugins.
 
-The main window is shown before optional services start. Language plugins and native extensions are then loaded incrementally in interleaved event-loop jobs, while the terminal shell starts asynchronously. This keeps painting and input responsive without moving Qt plugin construction or extension UI callbacks onto unsafe worker threads.
+The main window is shown before optional services start. Language plugins and native extensions are then loaded incrementally in interleaved event-loop jobs, while the terminal shell starts asynchronously. This keeps painting and input responsive without moving Qt plugin construction or extension UI callbacks onto unsafe worker threads. The previous window size, maximized/fullscreen state, and dock layout are restored on launch; a first launch opens maximized.
 
 ## Language plugins
 
@@ -28,7 +28,7 @@ Both plugins also provide live diagnostics. Errors and warnings use colored squi
 
 The detected language plugin can provide a native run configuration. The Python plugin locates an installed Python 3 interpreter and runs `.py`, `.pyw`, and `.pyi` files with it; the same interpreter powers full AST diagnostics. Choose **Run > Run Current File** or press **Ctrl+F5**. Output appears in the integrated terminal.
 
-The bottom terminal is also an interactive system shell. Opening a project changes its working directory to the workspace root. It can be shown or hidden from **View > Terminal**.
+The bottom terminal is also an interactive system shell. Type directly into its output surface—there is no separate command box. Input is routed to a running program first, so Python `input()` works, and the **Terminate** control stops the active program or shell. Opening a project changes its working directory to the workspace root. It can be shown or hidden from **View > Terminal**.
 
 ## Explorer
 

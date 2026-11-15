@@ -280,13 +280,14 @@ RunConfiguration PythonLanguagePlugin::runConfiguration(const QString &filePath)
     configuration.program = QStandardPaths::findExecutable(QStringLiteral("python"));
     if (configuration.program.isEmpty()) {
         configuration.program = QStringLiteral("py");
-        configuration.arguments = {QStringLiteral("-3"), QFileInfo(filePath).absoluteFilePath()};
+        configuration.arguments = {QStringLiteral("-3"), QStringLiteral("-u"),
+                                   QFileInfo(filePath).absoluteFilePath()};
     } else {
-        configuration.arguments = {QFileInfo(filePath).absoluteFilePath()};
+        configuration.arguments = {QStringLiteral("-u"), QFileInfo(filePath).absoluteFilePath()};
     }
 #else
     configuration.program = QStringLiteral("python3");
-    configuration.arguments = {QFileInfo(filePath).absoluteFilePath()};
+    configuration.arguments = {QStringLiteral("-u"), QFileInfo(filePath).absoluteFilePath()};
 #endif
     configuration.workingDirectory = QFileInfo(filePath).absolutePath();
     return configuration;

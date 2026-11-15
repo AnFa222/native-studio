@@ -11,7 +11,8 @@ int main(int argc, char *argv[])
     QCoreApplication::setApplicationName(QStringLiteral("Native Studio"));
 
     MainWindow window;
-    window.show();
+    if (window.restoreWindowLayout()) window.show();
+    else window.showMaximized();
     QTimer::singleShot(0, &window, &MainWindow::startDeferredServices);
     return application.exec();
 }

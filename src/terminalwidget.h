@@ -2,9 +2,10 @@
 
 #include <QWidget>
 
-class QLineEdit;
+class QEvent;
 class QPlainTextEdit;
 class QProcess;
+class QToolButton;
 
 class TerminalWidget final : public QWidget
 {
@@ -23,20 +24,31 @@ public:
 signals:
     void commandFinished(int exitCode);
 
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
 private slots:
-    void submitCommand();
+    void submitCurrentInput();
+    void terminateActiveProcess();
     void readShellOutput();
     void readRunnerOutput();
+    void updateTerminateButton();
 
 private:
     void startShell();
     void appendOutput(const QByteArray &bytes);
     void appendMessage(const QString &message);
+    [[nodiscard]] QString currentInput() const;
+    void replaceCurrentInput(const QString &text);
+    void moveCursorToInput();
 
     QPlainTextEdit *m_output = nullptr;
-    QLineEdit *m_input = nullptr;
+    QToolButton *m_terminateButton = nullptr;
     QProcess *m_shell = nullptr;
     QProcess *m_runner = nullptr;
     QString m_workingDirectory;
+    QStringList m_history;
+    int m_inputStart = 0;
+    int m_historyIndex = 0;
     bool m_shellStarted = false;
 };
