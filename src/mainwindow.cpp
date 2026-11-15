@@ -21,6 +21,7 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QPainter>
+#include <QPalette>
 #include <QPixmap>
 #include <QStatusBar>
 #include <QSettings>
@@ -282,8 +283,27 @@ void MainWindow::applyTheme()
     applicationFont.setPointSize(qBound(8, settings.value(QStringLiteral("appearance/uiFontSize"),
                                                            applicationFont.pointSize()).toInt(), 20));
     QApplication::setFont(applicationFont);
-    if (settings.value(QStringLiteral("appearance/theme"),
-                       QStringLiteral("dark")).toString() == QStringLiteral("light")) {
+    const bool light = settings.value(QStringLiteral("appearance/theme"),
+                                      QStringLiteral("dark")).toString() == QStringLiteral("light");
+    QPalette palette;
+    palette.setColor(QPalette::Window, QColor(light ? QStringLiteral("#ffffff")
+                                                     : QStringLiteral("#0d1117")));
+    palette.setColor(QPalette::WindowText, QColor(light ? QStringLiteral("#24292f")
+                                                         : QStringLiteral("#c9d1d9")));
+    palette.setColor(QPalette::Base, QColor(light ? QStringLiteral("#ffffff")
+                                                   : QStringLiteral("#0d1117")));
+    palette.setColor(QPalette::AlternateBase, QColor(light ? QStringLiteral("#f6f8fa")
+                                                            : QStringLiteral("#161b22")));
+    palette.setColor(QPalette::Text, QColor(light ? QStringLiteral("#24292f")
+                                                   : QStringLiteral("#e6edf3")));
+    palette.setColor(QPalette::Button, QColor(light ? QStringLiteral("#f6f8fa")
+                                                     : QStringLiteral("#21262d")));
+    palette.setColor(QPalette::ButtonText, QColor(light ? QStringLiteral("#24292f")
+                                                         : QStringLiteral("#c9d1d9")));
+    palette.setColor(QPalette::Highlight, QColor(QStringLiteral("#0969da")));
+    palette.setColor(QPalette::HighlightedText, QColor(QStringLiteral("#ffffff")));
+    QApplication::setPalette(palette);
+    if (light) {
         setStyleSheet(QStringLiteral(R"(
             QMainWindow, QDialog { background: #ffffff; color: #24292f; }
             QMenuBar, QToolBar { background: #f6f8fa; color: #24292f; border-bottom: 1px solid #d0d7de; }
@@ -378,7 +398,13 @@ void MainWindow::applySettings()
     applyTheme();
     m_terminal->reloadSettings();
     for (int index = 0; index < m_tabs->count(); ++index) {
-        if (auto *editor = editorAt(index)) editor->reloadSettings();
+        if (auto *editor = editorAt(index)) {
+            editor->reloadSettings();
+            if (!editor->filePath().isEmpty()) {
+                editor->setSyntaxHighlighter(
+                    m_languageManager->createHighlighter(editor->filePath(), editor->document()));
+            }
+        }
     }
 }
 

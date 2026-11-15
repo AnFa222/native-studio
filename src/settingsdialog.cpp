@@ -139,6 +139,10 @@ SettingsDialog::SettingsDialog(LanguageManager *languages, ExtensionManager *ext
     m_terminalForegroundButton->setObjectName(QStringLiteral("terminalForegroundColor"));
     m_terminalBackgroundButton = new QPushButton(terminalPage);
     m_terminalBackgroundButton->setObjectName(QStringLiteral("terminalBackgroundColor"));
+    m_terminalFollowTheme = new QCheckBox(tr("Follow the application color theme"), terminalPage);
+    m_terminalFollowTheme->setObjectName(QStringLiteral("terminalFollowThemeSetting"));
+    m_terminalFollowTheme->setChecked(
+        settings.value(QStringLiteral("terminal/followTheme"), true).toBool());
     updateColorButton(m_terminalForegroundButton, m_terminalForeground);
     updateColorButton(m_terminalBackgroundButton, m_terminalBackground);
     connect(m_terminalForegroundButton, &QPushButton::clicked, this, [this] {
@@ -157,8 +161,17 @@ SettingsDialog::SettingsDialog(LanguageManager *languages, ExtensionManager *ext
             updateColorButton(m_terminalBackgroundButton, selected);
         }
     });
+    const auto updateTerminalColorControls = [this] {
+        const bool custom = !m_terminalFollowTheme->isChecked();
+        m_terminalForegroundButton->setEnabled(custom);
+        m_terminalBackgroundButton->setEnabled(custom);
+    };
+    connect(m_terminalFollowTheme, &QCheckBox::toggled,
+            this, updateTerminalColorControls);
+    updateTerminalColorControls();
     terminalForm->addRow(tr("Font:"), m_terminalFont);
     terminalForm->addRow(tr("Font size:"), m_terminalFontSize);
+    terminalForm->addRow(QString{}, m_terminalFollowTheme);
     terminalForm->addRow(tr("Text color:"), m_terminalForegroundButton);
     terminalForm->addRow(tr("Background:"), m_terminalBackgroundButton);
     terminalLayout->addLayout(terminalForm);
@@ -255,6 +268,7 @@ void SettingsDialog::restoreDefaults()
     m_lineNumbers->setChecked(true);
     m_terminalFont->setCurrentFont(fixedFont);
     m_terminalFontSize->setValue(qMax(8, fixedFont.pointSize()));
+    m_terminalFollowTheme->setChecked(true);
     m_terminalForeground = QColor(QStringLiteral("#ffffff"));
     m_terminalBackground = QColor(QStringLiteral("#010409"));
     updateColorButton(m_terminalForegroundButton, m_terminalForeground);
@@ -274,6 +288,7 @@ void SettingsDialog::accept()
     settings.setValue(QStringLiteral("editor/lineNumbers"), m_lineNumbers->isChecked());
     settings.setValue(QStringLiteral("terminal/fontFamily"), m_terminalFont->currentFont().family());
     settings.setValue(QStringLiteral("terminal/fontSize"), m_terminalFontSize->value());
+    settings.setValue(QStringLiteral("terminal/followTheme"), m_terminalFollowTheme->isChecked());
     settings.setValue(QStringLiteral("terminal/foreground"), m_terminalForeground.name());
     settings.setValue(QStringLiteral("terminal/background"), m_terminalBackground.name());
     QDialog::accept();

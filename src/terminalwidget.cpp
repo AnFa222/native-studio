@@ -126,10 +126,17 @@ void TerminalWidget::reloadSettings()
     terminalFont.setPointSize(qBound(8, settings.value(QStringLiteral("terminal/fontSize"),
                                                         qMax(8, terminalFont.pointSize())).toInt(), 32));
     m_output->setFont(terminalFont);
-    const QColor foreground(settings.value(QStringLiteral("terminal/foreground"),
-                                            QStringLiteral("#ffffff")).toString());
-    const QColor background(settings.value(QStringLiteral("terminal/background"),
-                                            QStringLiteral("#010409")).toString());
+    const bool light = settings.value(QStringLiteral("appearance/theme"),
+                                      QStringLiteral("dark")).toString() == QStringLiteral("light");
+    const bool followTheme = settings.value(QStringLiteral("terminal/followTheme"), true).toBool();
+    const QColor foreground(followTheme
+        ? (light ? QStringLiteral("#24292f") : QStringLiteral("#ffffff"))
+        : settings.value(QStringLiteral("terminal/foreground"),
+                         QStringLiteral("#ffffff")).toString());
+    const QColor background(followTheme
+        ? (light ? QStringLiteral("#ffffff") : QStringLiteral("#010409"))
+        : settings.value(QStringLiteral("terminal/background"),
+                         QStringLiteral("#010409")).toString());
     m_output->setStyleSheet(QStringLiteral(
         "QPlainTextEdit#terminalOutput { background: %1; color: %2; border: 0; "
         "selection-background-color: #1f6feb; selection-color: #ffffff; padding: 5px 8px; }")

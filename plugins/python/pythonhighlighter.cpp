@@ -2,14 +2,19 @@
 
 #include <QColor>
 #include <QFont>
+#include <QSettings>
 #include <QStringList>
 #include <QTextDocument>
 
 PythonHighlighter::PythonHighlighter(QTextDocument *document)
     : QSyntaxHighlighter(document)
 {
+    const bool light = QSettings().value(QStringLiteral("appearance/theme"),
+                                         QStringLiteral("dark")).toString()
+        == QStringLiteral("light");
     QTextCharFormat keywordFormat;
-    keywordFormat.setForeground(QColor(QStringLiteral("#c586c0")));
+    keywordFormat.setForeground(QColor(light ? QStringLiteral("#8250df")
+                                             : QStringLiteral("#c586c0")));
     keywordFormat.setFontWeight(QFont::DemiBold);
     const QStringList keywords{
         QStringLiteral("and"), QStringLiteral("as"), QStringLiteral("assert"),
@@ -29,7 +34,8 @@ PythonHighlighter::PythonHighlighter(QTextDocument *document)
     }
 
     QTextCharFormat builtinFormat;
-    builtinFormat.setForeground(QColor(QStringLiteral("#4ec9b0")));
+    builtinFormat.setForeground(QColor(light ? QStringLiteral("#1f6f78")
+                                             : QStringLiteral("#4ec9b0")));
     const QStringList builtins{
         QStringLiteral("bool"), QStringLiteral("bytes"), QStringLiteral("dict"),
         QStringLiteral("enumerate"), QStringLiteral("filter"), QStringLiteral("float"),
@@ -43,28 +49,33 @@ PythonHighlighter::PythonHighlighter(QTextDocument *document)
     }
 
     QTextCharFormat constantFormat;
-    constantFormat.setForeground(QColor(QStringLiteral("#569cd6")));
+    constantFormat.setForeground(QColor(light ? QStringLiteral("#0969da")
+                                              : QStringLiteral("#569cd6")));
     m_rules.push_back({QRegularExpression(QStringLiteral("\\b(?:True|False|None|NotImplemented|Ellipsis)\\b")),
                        constantFormat});
 
     QTextCharFormat decoratorFormat;
-    decoratorFormat.setForeground(QColor(QStringLiteral("#dcdcaa")));
+    decoratorFormat.setForeground(QColor(light ? QStringLiteral("#9a6700")
+                                               : QStringLiteral("#dcdcaa")));
     m_rules.push_back({QRegularExpression(QStringLiteral("@[_A-Za-z][_A-Za-z0-9.]*")), decoratorFormat});
 
     QTextCharFormat numberFormat;
-    numberFormat.setForeground(QColor(QStringLiteral("#b5cea8")));
+    numberFormat.setForeground(QColor(light ? QStringLiteral("#116329")
+                                            : QStringLiteral("#b5cea8")));
     m_rules.push_back({QRegularExpression(
         QStringLiteral("\\b(?:0[xX][0-9a-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+|[0-9][0-9_]*(?:\\.[0-9_]*)?(?:[eE][+-]?[0-9_]+)?j?)\\b")),
         numberFormat});
 
-    m_stringFormat.setForeground(QColor(QStringLiteral("#ce9178")));
+    m_stringFormat.setForeground(QColor(light ? QStringLiteral("#a40e26")
+                                              : QStringLiteral("#ce9178")));
     m_rules.push_back({QRegularExpression(QStringLiteral("(?:[rRuUbBfF]{0,2})\"(?:\\\\.|[^\"\\\\])*\"")),
                        m_stringFormat});
     m_rules.push_back({QRegularExpression(QStringLiteral("(?:[rRuUbBfF]{0,2})'(?:\\\\.|[^'\\\\])*'")),
                        m_stringFormat});
 
     QTextCharFormat commentFormat;
-    commentFormat.setForeground(QColor(QStringLiteral("#6a9955")));
+    commentFormat.setForeground(QColor(light ? QStringLiteral("#1a7f37")
+                                             : QStringLiteral("#6a9955")));
     commentFormat.setFontItalic(true);
     m_rules.push_back({QRegularExpression(QStringLiteral("#.*$")), commentFormat});
 }

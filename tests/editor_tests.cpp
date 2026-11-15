@@ -14,6 +14,7 @@
 #include <QFileSystemModel>
 #include <QCompleter>
 #include <QComboBox>
+#include <QDir>
 #include <QTabWidget>
 #include <QTemporaryDir>
 #include <QSignalSpy>
@@ -22,6 +23,7 @@
 #include <QListWidget>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QSettings>
 #include <QTableWidget>
 #include <QTest>
 #include <QTextBlock>
@@ -32,6 +34,55 @@
 #include <QToolButton>
 
 #include <algorithm>
+
+namespace {
+class SettingGuard
+{
+public:
+    explicit SettingGuard(QString key)
+        : m_key(std::move(key)), m_existed(QSettings().contains(m_key)),
+          m_value(QSettings().value(m_key))
+    {
+    }
+    ~SettingGuard()
+    {
+        if (m_existed) QSettings().setValue(m_key, m_value);
+        else QSettings().remove(m_key);
+    }
+
+private:
+    QString m_key;
+    bool m_existed = false;
+    QVariant m_value;
+};
+
+class ApplicationSettingsGuard
+{
+public:
+    ApplicationSettingsGuard()
+        : m_organization(QCoreApplication::organizationName()),
+          m_application(QCoreApplication::applicationName()),
+          m_format(QSettings::defaultFormat())
+    {
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
+                           QDir(QDir::tempPath()).filePath(QStringLiteral("native-studio-tests")));
+        QCoreApplication::setOrganizationName(QStringLiteral("NativeStudioTests"));
+        QCoreApplication::setApplicationName(QStringLiteral("ThemeSettings"));
+    }
+    ~ApplicationSettingsGuard()
+    {
+        QCoreApplication::setOrganizationName(m_organization);
+        QCoreApplication::setApplicationName(m_application);
+        QSettings::setDefaultFormat(m_format);
+    }
+
+private:
+    QString m_organization;
+    QString m_application;
+    QSettings::Format m_format;
+};
+}
 
 class EditorTests final : public QObject
 {
@@ -55,6 +106,7 @@ private slots:
     void loadsNativeBinaryExtension();
     void extensionManagerShowsManifestControls();
     void settingsCenterIncludesCoreAndPluginPages();
+    void lightThemeUsesDarkText();
     void languagePluginsProvideCompletions();
     void languagePluginsDetectErrors();
     void pythonAnalyzerFindsSemanticProblems();
@@ -436,12 +488,41 @@ void EditorTests::settingsCenterIncludesCoreAndPluginPages()
     QVERIFY(dialog.findChild<QPushButton *>(QStringLiteral("settingsManageExtensions")) != nullptr);
     QVERIFY(dialog.findChild<QWidget *>(QStringLiteral("pythonSettingsPage")) != nullptr);
     QVERIFY(dialog.findChild<QPushButton *>(QStringLiteral("selectPythonInterpreter")) != nullptr);
+    QVERIFY(dialog.findChild<QWidget *>(QStringLiteral("terminalFollowThemeSetting")) != nullptr);
 
     search->setText(QStringLiteral("interpreter"));
     int visibleCategories = 0;
     for (int index = 0; index < categories->count(); ++index)
         visibleCategories += categories->item(index)->isHidden() ? 0 : 1;
     QCOMPARE(visibleCategories, 1);
+}
+
+void EditorTests::lightThemeUsesDarkText()
+{
+    ApplicationSettingsGuard applicationSettings;
+    SettingGuard themeGuard(QStringLiteral("appearance/theme"));
+    SettingGuard terminalThemeGuard(QStringLiteral("terminal/followTheme"));
+    QSettings testSettings;
+    testSettings.setValue(QStringLiteral("appearance/theme"), QStringLiteral("light"));
+    testSettings.setValue(QStringLiteral("terminal/followTheme"), true);
+    testSettings.sync();
+    QCOMPARE(testSettings.value(QStringLiteral("appearance/theme")).toString(),
+             QStringLiteral("light"));
+
+    MainWindow window;
+    window.show();
+    QCoreApplication::processEvents();
+    QCOMPARE(QSettings().value(QStringLiteral("appearance/theme")).toString(),
+             QStringLiteral("light"));
+    QVERIFY(window.styleSheet().contains(QStringLiteral("QMainWindow, QDialog")));
+    auto *editor = qobject_cast<CodeEditor *>(window.editorTabs()->currentWidget());
+    auto *terminalView = window.terminal()->findChild<QPlainTextEdit *>(
+        QStringLiteral("terminalOutput"));
+    QVERIFY(editor != nullptr);
+    QVERIFY(terminalView != nullptr);
+    QCOMPARE(editor->palette().color(QPalette::Text), QColor(QStringLiteral("#24292f")));
+    QVERIFY(terminalView->styleSheet().contains(QStringLiteral("color: #24292f")));
+    QVERIFY(terminalView->styleSheet().contains(QStringLiteral("background: #ffffff")));
 }
 
 void EditorTests::languagePluginsProvideCompletions()

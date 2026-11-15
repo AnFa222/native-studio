@@ -133,6 +133,12 @@ void CodeEditor::reloadSettings()
     m_gutterBorder = QColor(light ? QStringLiteral("#d0d7de") : QStringLiteral("#21262d"));
     m_lineNumberColor = QColor(light ? QStringLiteral("#57606a") : QStringLiteral("#6e7681"));
     m_activeLineNumberColor = QColor(light ? QStringLiteral("#0969da") : QStringLiteral("#f0f6fc"));
+    QPalette editorPalette = palette();
+    editorPalette.setColor(QPalette::Base, QColor(light ? QStringLiteral("#ffffff")
+                                                   : QStringLiteral("#0d1117")));
+    editorPalette.setColor(QPalette::Text, QColor(light ? QStringLiteral("#24292f")
+                                                   : QStringLiteral("#e6edf3")));
+    setPalette(editorPalette);
     updateLineNumberAreaWidth();
     refreshExtraSelections();
     viewport()->update();

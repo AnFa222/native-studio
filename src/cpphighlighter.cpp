@@ -2,14 +2,19 @@
 
 #include <QColor>
 #include <QFont>
+#include <QSettings>
 #include <QStringList>
 #include <QTextDocument>
 
 CppHighlighter::CppHighlighter(QTextDocument *document)
     : QSyntaxHighlighter(document)
 {
+    const bool light = QSettings().value(QStringLiteral("appearance/theme"),
+                                         QStringLiteral("dark")).toString()
+        == QStringLiteral("light");
     QTextCharFormat keywordFormat;
-    keywordFormat.setForeground(QColor(QStringLiteral("#569cd6")));
+    keywordFormat.setForeground(QColor(light ? QStringLiteral("#0969da")
+                                             : QStringLiteral("#569cd6")));
     keywordFormat.setFontWeight(QFont::DemiBold);
     const QStringList keywords{
         QStringLiteral("alignas"), QStringLiteral("alignof"), QStringLiteral("auto"),
@@ -40,19 +45,23 @@ CppHighlighter::CppHighlighter(QTextDocument *document)
     }
 
     QTextCharFormat stringFormat;
-    stringFormat.setForeground(QColor(QStringLiteral("#ce9178")));
+    stringFormat.setForeground(QColor(light ? QStringLiteral("#a40e26")
+                                            : QStringLiteral("#ce9178")));
     m_rules.push_back({QRegularExpression(QStringLiteral("\"(?:\\\\.|[^\"\\\\])*\"")), stringFormat});
     m_rules.push_back({QRegularExpression(QStringLiteral("'(?:\\\\.|[^'\\\\])*'")), stringFormat});
 
     QTextCharFormat numberFormat;
-    numberFormat.setForeground(QColor(QStringLiteral("#b5cea8")));
+    numberFormat.setForeground(QColor(light ? QStringLiteral("#116329")
+                                            : QStringLiteral("#b5cea8")));
     m_rules.push_back({QRegularExpression(QStringLiteral("\\b(?:0[xX][0-9a-fA-F']+|[0-9][0-9']*(?:\\.[0-9']+)?)\\b")), numberFormat});
 
     QTextCharFormat preprocessorFormat;
-    preprocessorFormat.setForeground(QColor(QStringLiteral("#c586c0")));
+    preprocessorFormat.setForeground(QColor(light ? QStringLiteral("#8250df")
+                                                  : QStringLiteral("#c586c0")));
     m_rules.push_back({QRegularExpression(QStringLiteral("^\\s*#.*$")), preprocessorFormat});
 
-    m_commentFormat.setForeground(QColor(QStringLiteral("#6a9955")));
+    m_commentFormat.setForeground(QColor(light ? QStringLiteral("#1a7f37")
+                                                : QStringLiteral("#6a9955")));
     m_commentFormat.setFontItalic(true);
     m_rules.push_back({QRegularExpression(QStringLiteral("//.*$")), m_commentFormat});
 }

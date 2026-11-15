@@ -47,6 +47,7 @@ private:
     QCheckBox *m_lineNumbers = nullptr;
     QFontComboBox *m_terminalFont = nullptr;
     QSpinBox *m_terminalFontSize = nullptr;
+    QCheckBox *m_terminalFollowTheme = nullptr;
     QPushButton *m_terminalForegroundButton = nullptr;
     QPushButton *m_terminalBackgroundButton = nullptr;
     QColor m_terminalForeground;
