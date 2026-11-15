@@ -46,6 +46,7 @@ private slots:
     void editorAcceptsInlineCompletion();
     void analysisRefreshKeepsCompletionOpen();
     void backspaceRestoresCompletionSuggestions();
+    void escapeThenEnterDoesNotAcceptCompletion();
     void autoClosesAndKeepsPairsOnBackspace();
     void problemsPanelTracksDiagnostics();
 };
@@ -376,6 +377,25 @@ void EditorTests::backspaceRestoresCompletionSuggestions()
     QVERIFY(editor.completionPopupVisible());
     QCOMPARE(editor.inlineCompletion(), QStringLiteral("int"));
     QCOMPARE(completer->completionCount(), 2);
+}
+
+void EditorTests::escapeThenEnterDoesNotAcceptCompletion()
+{
+    CodeEditor editor;
+    editor.setCompletionItems({QStringLiteral("print"), QStringLiteral("property")});
+    editor.show();
+    editor.setFocus();
+    QCoreApplication::processEvents();
+
+    QTest::keyClicks(&editor, QStringLiteral("pr"));
+    QVERIFY(editor.completionPopupVisible());
+    QVERIFY(!editor.inlineCompletion().isEmpty());
+    QTest::keyClick(&editor, Qt::Key_Escape);
+    QVERIFY(!editor.completionPopupVisible());
+    QVERIFY(editor.inlineCompletion().isEmpty());
+
+    QTest::keyClick(&editor, Qt::Key_Return);
+    QCOMPARE(editor.toPlainText(), QStringLiteral("pr\n"));
 }
 
 void EditorTests::autoClosesAndKeepsPairsOnBackspace()

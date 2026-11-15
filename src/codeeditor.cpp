@@ -350,7 +350,8 @@ void CodeEditor::keyPressEvent(QKeyEvent *event)
 {
     const bool acceptKey = event->key() == Qt::Key_Tab
         || event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter;
-    if (acceptKey && (!m_inlineCompletion.isEmpty() || m_completer->popup()->isVisible())) {
+    if (acceptKey && !m_completionDismissed
+        && (!m_inlineCompletion.isEmpty() || m_completer->popup()->isVisible())) {
         const QString completion = !m_completionCandidate.isEmpty()
             ? m_completionCandidate : currentWordPrefix() + m_inlineCompletion;
         if (!completion.isEmpty()) insertCompletion(completion);
@@ -367,6 +368,9 @@ void CodeEditor::keyPressEvent(QKeyEvent *event)
     if (event->key() == Qt::Key_Escape && m_completer->popup()->isVisible()) {
         m_completer->popup()->hide();
         m_completionDismissed = true;
+        m_inlineCompletion.clear();
+        m_completionCandidate.clear();
+        viewport()->update();
         event->accept();
         return;
     }
