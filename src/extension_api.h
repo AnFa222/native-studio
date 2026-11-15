@@ -120,6 +120,7 @@ typedef struct NsHostApi {
                                       const NsSettingsPageSpec *page);
     size_t (*get_extension_setting)(void *host_context, NsExtensionHandle extension,
                                     NsStringView key, char *buffer, size_t capacity);
+    int32_t (*show_view)(void *host_context, NsStringView view_id);
 } NsHostApi;
 
 typedef int32_t (*NsActivateCallback)(void *extension_context, const NsHostApi *host,

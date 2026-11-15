@@ -50,6 +50,7 @@ public:
     bool replaceExtensionDocument(const QString &text);
     bool runExtensionProcess(const QString &program, const QStringList &arguments,
                              const QString &workingDirectory = {});
+    bool showExtensionView(const QString &viewId);
 
 signals:
     void servicesLoaded();

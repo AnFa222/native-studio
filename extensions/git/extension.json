@@ -1,0 +1,15 @@
+{
+  "manifestVersion": 1,
+  "id": "dev.nativestudio.git",
+  "name": "Git",
+  "version": "1.0.0",
+  "abiVersion": 1,
+  "description": "Fast native Git source control with status, diffs, staging, unstaging, and commits.",
+  "author": "Native Studio",
+  "permissions": ["ui.commands", "ui.views", "settings"],
+  "binary": {
+    "windows": "native_git.dll",
+    "linux": "native_git.so",
+    "macos": "native_git.dylib"
+  }
+}

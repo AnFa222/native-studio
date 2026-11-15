@@ -124,6 +124,7 @@ private:
                                             const NsSettingsPageSpec *page);
     static size_t hostGetExtensionSetting(void *hostContext, NsExtensionHandle extension,
                                           NsStringView key, char *buffer, size_t capacity);
+    static int32_t hostShowView(void *hostContext, NsStringView viewId);
 
     MainWindow *m_window = nullptr;
     QMenu *m_extensionsMenu = nullptr;

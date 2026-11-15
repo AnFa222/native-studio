@@ -43,6 +43,8 @@ jobs:
             build/plugins/languages/language_python.dll
             build/extensions/bundled/native_hello.dll
             build/extensions/bundled/native_hello.json
+            build/extensions/bundled/native_git.dll
+            build/extensions/bundled/native_git.json
             build/extensions/bundled/native_code_tidy.dll
             build/extensions/bundled/native_code_tidy.json
             src/extension_api.h

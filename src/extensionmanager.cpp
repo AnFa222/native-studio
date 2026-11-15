@@ -96,6 +96,7 @@ ExtensionManager::ExtensionManager(MainWindow *window, QMenu *extensionsMenu, QO
     m_hostApi.get_active_document_text = &ExtensionManager::hostGetActiveDocumentText;
     m_hostApi.register_settings_page = &ExtensionManager::hostRegisterSettingsPage;
     m_hostApi.get_extension_setting = &ExtensionManager::hostGetExtensionSetting;
+    m_hostApi.show_view = &ExtensionManager::hostShowView;
 }
 
 ExtensionManager::~ExtensionManager()
@@ -176,7 +177,7 @@ bool ExtensionManager::readManifest(const QString &path, bool bundled,
         QStringLiteral("ui.commands"), QStringLiteral("editor.read"),
         QStringLiteral("editor.write"), QStringLiteral("editor.events"),
         QStringLiteral("filesystem.read"), QStringLiteral("process.execute"),
-        QStringLiteral("settings")
+        QStringLiteral("settings"), QStringLiteral("ui.views")
     };
     const QJsonValue permissionValue = object.value(QStringLiteral("permissions"));
     if (!permissionValue.isUndefined() && !permissionValue.isArray()) {
@@ -1160,4 +1161,13 @@ size_t ExtensionManager::hostGetExtensionSetting(void *hostContext,
     if (buffer && capacity >= required && required > 0)
         std::memcpy(buffer, value.constData(), required);
     return required;
+}
+
+int32_t ExtensionManager::hostShowView(void *hostContext, NsStringView viewId)
+{
+    auto *owner = static_cast<LoadedExtension *>(hostContext);
+    auto *manager = owner ? owner->manager : nullptr;
+    return manager && manager->m_window
+        && manager->hasPermission(owner, QStringLiteral("ui.views"))
+        && manager->m_window->showExtensionView(fromView(viewId)) ? 1 : 0;
 }

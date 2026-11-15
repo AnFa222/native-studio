@@ -8,6 +8,7 @@
 #include <QPlainTextEdit>
 #include <QProcess>
 #include <QPushButton>
+#include <QSettings>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
@@ -77,7 +78,10 @@ void GitWidget::runGit(const QStringList &arguments,
 {
     if (m_rootPath.isEmpty()) return;
     auto *process = new QProcess(this);
-    process->setProgram(QStringLiteral("git"));
+    const QString configuredGit = QSettings().value(
+        QStringLiteral("extensions/settings/dev.nativestudio.git/git_path"),
+        QStringLiteral("git")).toString().trimmed();
+    process->setProgram(configuredGit.isEmpty() ? QStringLiteral("git") : configuredGit);
     process->setArguments(QStringList{QStringLiteral("-C"), m_rootPath} + arguments);
     process->setProcessChannelMode(QProcess::MergedChannels);
     connect(process, &QProcess::finished, this, [process, finished](int, QProcess::ExitStatus) {

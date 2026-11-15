@@ -49,6 +49,7 @@ Every extension ships a JSON manifest beside its binary:
 - `filesystem.read`: ask the host to open a file.
 - `process.execute`: launch programs in the integrated terminal.
 - `settings`: register a settings page and read its values.
+- `ui.views`: open a host-provided lazy view such as Source Control.
 
 Permissions authorize host API calls only. Native shared libraries execute in-process, so install binaries only from publishers you trust.
 
@@ -133,6 +134,7 @@ Extensions shipped with Native Studio are installed under `bin/extensions/bundle
 - `get_active_document_text`: copy the active UTF-8 document into a caller-owned buffer; call with a null buffer first to query its byte size.
 - `register_settings_page`: describe a native settings page with boolean, integer, text, or choice fields. Native Studio owns and renders the Qt controls; the extension remains independent of Qt.
 - `get_extension_setting`: copy one setting's current UTF-8 value into a caller-owned buffer; call with a null buffer first to query its byte size. Values are scoped automatically to the calling extension.
+- `show_view`: open a host-owned view by stable identifier. v1 currently provides `git.sourceControl`. Views remain lazy and are created only when requested.
 
 Command callbacks receive the active file path, project root, and document-modified state without an additional host query.
 

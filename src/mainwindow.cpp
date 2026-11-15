@@ -193,7 +193,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_terminalTerminateButton->setAccessibleName(tr("Terminate"));
     m_terminalTerminateButton->setFocusPolicy(Qt::NoFocus);
     m_terminalTerminateButton->setCursor(Qt::PointingHandCursor);
-    m_terminalTerminateButton->setFixedSize(20, 20);
+    m_terminalTerminateButton->setFixedSize(12, 12);
     m_terminalTerminateButton->setEnabled(false);
     m_terminalTabs->setCornerWidget(m_terminalTerminateButton, Qt::TopRightCorner);
     connect(m_terminalTerminateButton, &QToolButton::clicked, this, [this] {
@@ -390,6 +390,15 @@ bool MainWindow::runExtensionProcess(const QString &program, const QStringList &
     return true;
 }
 
+bool MainWindow::showExtensionView(const QString &viewId)
+{
+    if (viewId == QStringLiteral("git.sourceControl")) {
+        showGit();
+        return m_gitDock != nullptr;
+    }
+    return false;
+}
+
 void MainWindow::createActions()
 {
     auto *fileMenu = menuBar()->addMenu(tr("&File"));
@@ -457,9 +466,6 @@ void MainWindow::createActions()
     auto *splitAction = viewMenu->addAction(tr("Split Editor Right"), this, &MainWindow::splitEditorRight);
     splitAction->setObjectName(QStringLiteral("splitEditorAction"));
     splitAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+\\")));
-    auto *gitAction = viewMenu->addAction(tr("Source Control"), this, &MainWindow::showGit);
-    gitAction->setObjectName(QStringLiteral("sourceControlAction"));
-    gitAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+G")));
     auto *newTerminalAction = terminalMenu->addAction(tr("New Terminal"), this, &MainWindow::newTerminal);
     newTerminalAction->setObjectName(QStringLiteral("newTerminalAction"));
     newTerminalAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+`")));
@@ -522,7 +528,7 @@ void MainWindow::applyTheme()
             QToolButton:hover { background: #d0d7de; }
             QToolButton#editorTabCloseButton { color: #57606a; background: transparent; border: 0; border-radius: 3px; padding: 0; font-size: 15px; font-weight: 400; }
             QToolButton#editorTabCloseButton:hover { color: #24292f; background: #d0d7de; }
-            QDockWidget#terminalDock QToolButton#terminateTerminalButton { background: #cf222e; border: 0; border-radius: 4px; padding: 0; }
+            QDockWidget#terminalDock QToolButton#terminateTerminalButton { background: #cf222e; border: 0; border-radius: 3px; padding: 0; }
             QDockWidget#terminalDock QToolButton#terminateTerminalButton:hover { background: #a40e26; }
             QDockWidget#terminalDock QToolButton#terminateTerminalButton:disabled { background: #d8a4aa; }
             QPlainTextEdit#codeEditor { background: #ffffff; color: #24292f; border: 0; selection-background-color: #b6e3ff; selection-color: #24292f; padding: 4px 0 0 6px; }
@@ -559,7 +565,7 @@ void MainWindow::applyTheme()
         QToolButton#editorTabCloseButton { color: #8b949e; background: transparent; border: 0; border-radius: 3px; padding: 0; font-size: 15px; font-weight: 400; }
         QToolButton#editorTabCloseButton:hover { color: #ffffff; background: #30363d; }
         QToolButton#editorTabCloseButton:pressed { color: #ffffff; background: #484f58; }
-        QDockWidget#terminalDock QToolButton#terminateTerminalButton { background: #da3633; border: 0; border-radius: 4px; padding: 0; }
+        QDockWidget#terminalDock QToolButton#terminateTerminalButton { background: #da3633; border: 0; border-radius: 3px; padding: 0; }
         QDockWidget#terminalDock QToolButton#terminateTerminalButton:hover { background: #f85149; }
         QDockWidget#terminalDock QToolButton#terminateTerminalButton:pressed { background: #b62324; }
         QDockWidget#terminalDock QToolButton#terminateTerminalButton:disabled { background: #672626; }

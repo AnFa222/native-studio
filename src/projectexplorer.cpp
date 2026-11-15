@@ -15,6 +15,8 @@
 #include <QMenu>
 #include <QMimeData>
 #include <QMessageBox>
+#include <QPainter>
+#include <QProxyStyle>
 #include <QPushButton>
 #include <QStyle>
 #include <QToolButton>
@@ -22,6 +24,37 @@
 #include <QVBoxLayout>
 
 namespace {
+class ExplorerTreeStyle final : public QProxyStyle
+{
+public:
+    void drawPrimitive(PrimitiveElement element, const QStyleOption *option,
+                       QPainter *painter, const QWidget *widget = nullptr) const override
+    {
+        if (element != PE_IndicatorBranch || !option->state.testFlag(State_Children)) {
+            QProxyStyle::drawPrimitive(element, option, painter, widget);
+            return;
+        }
+
+        const QPointF center = option->rect.center();
+        QPolygonF chevron;
+        if (option->state.testFlag(State_Open)) {
+            chevron << QPointF(center.x() - 4, center.y() - 2)
+                    << QPointF(center.x(), center.y() + 2)
+                    << QPointF(center.x() + 4, center.y() - 2);
+        } else {
+            chevron << QPointF(center.x() - 2, center.y() - 4)
+                    << QPointF(center.x() + 2, center.y())
+                    << QPointF(center.x() - 2, center.y() + 4);
+        }
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing);
+        painter->setPen(QPen(option->palette.color(QPalette::Text), 1.5,
+                             Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter->drawPolyline(chevron);
+        painter->restore();
+    }
+};
+
 QToolButton *makeButton(QWidget *parent, const QIcon &icon, const QString &tooltip)
 {
     auto *button = new QToolButton(parent);
@@ -45,6 +78,7 @@ ProjectExplorer::ProjectExplorer(QWidget *parent)
     m_tree->setObjectName(QStringLiteral("projectTree"));
     m_tree->setHeaderHidden(true);
     m_tree->setAnimated(true);
+    m_tree->setExpandsOnDoubleClick(true);
     m_tree->setIndentation(14);
     m_tree->setUniformRowHeights(true);
     m_tree->setEditTriggers(QAbstractItemView::EditKeyPressed | QAbstractItemView::SelectedClicked);
@@ -54,6 +88,9 @@ ProjectExplorer::ProjectExplorer(QWidget *parent)
     m_tree->viewport()->setAcceptDrops(true);
     m_tree->viewport()->installEventFilter(this);
     m_tree->setVisible(false);
+    auto *treeStyle = new ExplorerTreeStyle;
+    treeStyle->setParent(m_tree);
+    m_tree->setStyle(treeStyle);
 
     m_workspaceLabel->setObjectName(QStringLiteral("workspaceLabel"));
     m_workspaceLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
