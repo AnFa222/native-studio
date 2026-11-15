@@ -596,7 +596,6 @@ void MainWindow::createActions()
     auto *extensionStoreAction = m_extensionsMenu->addAction(
         tr("Extension Store…"), this, &MainWindow::showExtensionStore);
     extensionStoreAction->setObjectName(QStringLiteral("extensionStoreAction"));
-    toolbar->insertAction(saveAction, extensionStoreAction);
     auto *manageExtensionsAction = m_extensionsMenu->addAction(
         tr("Manage Installed Extensions…"), this, &MainWindow::manageExtensions);
     manageExtensionsAction->setObjectName(QStringLiteral("manageExtensionsAction"));

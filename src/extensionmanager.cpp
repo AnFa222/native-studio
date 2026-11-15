@@ -36,6 +36,32 @@
 #include <cstring>
 #include <limits>
 
+namespace {
+const QSet<QString> &retiredBundledExtensionBases()
+{
+    static const QSet<QString> bases{
+        QStringLiteral("native_hello"),
+        QStringLiteral("native_python_variable_explorer")
+    };
+    return bases;
+}
+
+bool isRetiredBundledManifest(const QFileInfo &manifest)
+{
+    return retiredBundledExtensionBases().contains(manifest.completeBaseName().toLower());
+}
+
+void cleanRetiredBundledExtensions(const QString &directoryPath)
+{
+    QDir directory(directoryPath);
+    for (const QString &base : retiredBundledExtensionBases()) {
+        for (const QString &suffix : {QStringLiteral(".json"), QStringLiteral(".dll"),
+                                      QStringLiteral(".so"), QStringLiteral(".dylib")})
+            QFile::remove(directory.filePath(base + suffix));
+    }
+}
+}
+
 struct ExtensionManager::LoadedExtension
 {
     ExtensionManager *manager = nullptr;
@@ -289,6 +315,7 @@ QList<NativeExtensionInfo> ExtensionManager::manifestsInDirectory(const QString 
     const auto manifests = dir.entryInfoList({QStringLiteral("*.json")}, QDir::Files | QDir::Readable,
                                               QDir::Name | QDir::IgnoreCase);
     for (const QFileInfo &manifest : manifests) {
+        if (bundled && isRetiredBundledManifest(manifest)) continue;
         NativeExtensionInfo info;
         if (!readManifest(manifest.absoluteFilePath(), bundled, &info)) continue;
         info.loaded = containsExtension(info.id);
@@ -390,6 +417,7 @@ int ExtensionManager::loadExtensions(const QString &directory, bool bundled)
         {QStringLiteral("*.json")}, QDir::Files | QDir::Readable,
         QDir::Name | QDir::IgnoreCase);
     for (const QFileInfo &manifest : manifests) {
+        if (bundled && isRetiredBundledManifest(manifest)) continue;
         if (loadManifest(manifest.absoluteFilePath(), bundled)) ++loadedCount;
     }
     return loadedCount;
@@ -401,8 +429,10 @@ void ExtensionManager::queueManifestDirectory(const QString &directory, bool bun
     const auto manifests = extensionDirectory.entryInfoList(
         {QStringLiteral("*.json")}, QDir::Files | QDir::Readable,
         QDir::Name | QDir::IgnoreCase);
-    for (const QFileInfo &manifest : manifests)
+    for (const QFileInfo &manifest : manifests) {
+        if (bundled && isRetiredBundledManifest(manifest)) continue;
         m_pendingManifests.push_back({manifest.absoluteFilePath(), bundled});
+    }
 }
 
 void ExtensionManager::loadDefaultExtensionsAsync()
@@ -413,10 +443,13 @@ void ExtensionManager::loadDefaultExtensionsAsync()
     m_pendingManifests.clear();
     m_asyncLoadedCount = 0;
     const QString bundled = bundledExtensionDirectory();
+    cleanRetiredBundledExtensions(bundled);
     queueManifestDirectory(bundled, true);
     const QString multiConfig = multiConfigExtensionDirectory();
-    if (QDir::cleanPath(multiConfig) != QDir::cleanPath(bundled))
+    if (QDir::cleanPath(multiConfig) != QDir::cleanPath(bundled)) {
+        cleanRetiredBundledExtensions(multiConfig);
         queueManifestDirectory(multiConfig, true);
+    }
     queueManifestDirectory(userExtensionDirectory(), false);
     m_asyncLoading = true;
     QTimer::singleShot(0, this, &ExtensionManager::loadNextManifest);
@@ -440,10 +473,13 @@ int ExtensionManager::loadDefaultExtensions()
     applyPendingOperations();
     int loaded = 0;
     const QString bundled = bundledExtensionDirectory();
+    cleanRetiredBundledExtensions(bundled);
     loaded += loadExtensions(bundled, true);
     const QString multiConfig = multiConfigExtensionDirectory();
-    if (QDir::cleanPath(multiConfig) != QDir::cleanPath(bundled))
+    if (QDir::cleanPath(multiConfig) != QDir::cleanPath(bundled)) {
+        cleanRetiredBundledExtensions(multiConfig);
         loaded += loadExtensions(multiConfig, true);
+    }
     loaded += loadExtensions(userExtensionDirectory(), false);
     return loaded;
 }

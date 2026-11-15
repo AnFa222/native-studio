@@ -497,6 +497,14 @@ void EditorTests::pythonVariableExplorerRunsIndependently()
     window.openFile(path);
     const QString extensionId = QStringLiteral("dev.nativestudio.python_variable_explorer");
     auto *manager = window.extensionManager();
+    const auto bundledBeforeInstall = manager->installedExtensions();
+    QVERIFY(std::none_of(bundledBeforeInstall.cbegin(), bundledBeforeInstall.cend(),
+        [](const auto &extension) {
+            return extension.bundled
+                && (extension.id == QStringLiteral("dev.nativestudio.hello")
+                    || extension.id == QStringLiteral(
+                        "dev.nativestudio.python_variable_explorer"));
+        }));
     QString storeDirectory = QDir(QCoreApplication::applicationDirPath())
         .filePath(QStringLiteral("extensions/store"));
     if (!QDir(storeDirectory).exists()) {
@@ -1152,8 +1160,8 @@ void EditorTests::nativeWorkspaceFeaturesAreLazyAndAvailable()
         QStringLiteral("extensionStoreAction"));
     QVERIFY(extensionStoreAction != nullptr);
     QCOMPARE(extensionStoreAction->text(), QStringLiteral("Extension Store…"));
-    QVERIFY(window.findChild<QToolBar *>(QStringLiteral("fileToolbar"))
-                ->actions().contains(extensionStoreAction));
+    QVERIFY(!window.findChild<QToolBar *>(QStringLiteral("fileToolbar"))
+                 ->actions().contains(extensionStoreAction));
     auto *manageExtensionsAction = window.findChild<QAction *>(
         QStringLiteral("manageExtensionsAction"));
     QVERIFY(manageExtensionsAction != nullptr);
