@@ -533,6 +533,8 @@ void EditorTests::codeTidyFormatsDocumentAndSave()
         "def greet( name:str=\"world\",age=1 ):\n"
         " print( \"hello\",name )\n"
         " if(age>0):\n"
+        "\n"
+        "\n"
         "  return [{\"age\":age,\"name\":name}]\n"
         "class Person:\n"
         " def speak( self ):\n"

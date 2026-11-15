@@ -348,6 +348,18 @@ std::string formatPython(std::string_view source)
         if (rawIndent > indentStack.back()) indentStack.push_back(rawIndent);
         const size_t level = indentStack.size() - 1;
         std::string content = normalized.substr(first);
+        if (!output.empty() && output.back().empty()) {
+            size_t previous = output.size();
+            while (previous > 0 && output[previous - 1].empty()) --previous;
+            if (previous > 0) {
+                const std::string &header = output[previous - 1];
+                const size_t headerFirst = header.find_first_not_of(' ');
+                const size_t headerIndent = headerFirst == std::string::npos ? 0 : headerFirst;
+                const size_t headerLevel = headerIndent / static_cast<size_t>(indentWidth);
+                if (!header.empty() && header.back() == ':' && level > headerLevel)
+                    output.erase(output.begin() + static_cast<std::ptrdiff_t>(previous), output.end());
+            }
+        }
         const bool hasTripleQuote = tripleQuoteCount(content) % 2 == 1;
         if (normalizeSpacing && !inTripleString && !hasTripleQuote)
             content = formatPythonSpacing(content);
@@ -480,7 +492,7 @@ void deactivate(void *) { extensionHandle = nullptr; hostApi = nullptr; }
 
 const NsExtensionDescriptor descriptor{
     sizeof(NsExtensionDescriptor), NS_EXTENSION_ABI_VERSION,
-    view("dev.nativestudio.code_tidy"), view("Code Tidy"), view("1.1.0"),
+    view("dev.nativestudio.code_tidy"), view("Code Tidy"), view("1.1.1"),
     nullptr, &activate, &deactivate
 };
 }
