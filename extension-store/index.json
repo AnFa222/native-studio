@@ -14,6 +14,20 @@
         "linux": "https://github.com/AnFa222/native-studio/releases/latest/download/native_hello.so",
         "macos": "https://github.com/AnFa222/native-studio/releases/latest/download/native_hello.dylib"
       }
+    },
+    {
+      "id": "dev.nativestudio.python_variable_explorer",
+      "name": "Python Variable Explorer",
+      "version": "1.0.0",
+      "description": "Runs the active Python file in an isolated process and displays its resulting global variables in a native view.",
+      "author": "Native Studio",
+      "permissions": ["ui.commands", "ui.views", "process.execute", "settings", "filesystem.read"],
+      "manifestUrl": "https://raw.githubusercontent.com/AnFa222/native-studio/main/extensions/python_variable_explorer/extension.json",
+      "binaries": {
+        "windows": "https://github.com/AnFa222/native-studio/releases/latest/download/native_python_variable_explorer.dll",
+        "linux": "https://github.com/AnFa222/native-studio/releases/latest/download/native_python_variable_explorer.so",
+        "macos": "https://github.com/AnFa222/native-studio/releases/latest/download/native_python_variable_explorer.dylib"
+      }
     }
   ]
 }

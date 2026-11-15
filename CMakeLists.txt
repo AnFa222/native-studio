@@ -3,7 +3,7 @@ if(POLICY CMP0141)
     cmake_policy(SET CMP0141 NEW)
 endif()
 
-project(NativeStudio VERSION 0.20.0 LANGUAGES CXX)
+project(NativeStudio VERSION 0.21.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -22,6 +22,8 @@ add_library(nativeide_core STATIC
     src/extensionmanager.h
     src/extensionmanagerdialog.cpp
     src/extensionmanagerdialog.h
+    src/extensionstoredialog.cpp
+    src/extensionstoredialog.h
     src/keybindingsdialog.cpp
     src/keybindingsdialog.h
     src/languagemanager.cpp
@@ -115,7 +117,28 @@ set_target_properties(native_git_extension PROPERTIES
 )
 configure_file(extensions/git/extension.json
                "${BUNDLED_EXTENSION_BUILD_DIR}/native_git.json" COPYONLY)
-foreach(extension_target IN ITEMS native_hello_extension native_code_tidy_extension native_git_extension)
+
+add_library(native_python_variable_explorer MODULE
+    extensions/python_variable_explorer/python_variable_explorer.cpp
+    extensions/python_variable_explorer/variableexplorerwidget.cpp
+    extensions/python_variable_explorer/variableexplorerwidget.h
+    src/extension_api.h
+)
+target_include_directories(native_python_variable_explorer PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(native_python_variable_explorer PRIVATE Qt6::Widgets)
+set_target_properties(native_python_variable_explorer PROPERTIES
+    PREFIX ""
+    OUTPUT_NAME "native_python_variable_explorer"
+    LIBRARY_OUTPUT_DIRECTORY "${BUNDLED_EXTENSION_BUILD_DIR}"
+    RUNTIME_OUTPUT_DIRECTORY "${BUNDLED_EXTENSION_BUILD_DIR}"
+    LIBRARY_OUTPUT_DIRECTORY_RELEASE "${BUNDLED_EXTENSION_BUILD_DIR}"
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${BUNDLED_EXTENSION_BUILD_DIR}"
+)
+configure_file(extensions/python_variable_explorer/extension.json
+               "${BUNDLED_EXTENSION_BUILD_DIR}/native_python_variable_explorer.json" COPYONLY)
+
+foreach(extension_target IN ITEMS native_hello_extension native_code_tidy_extension
+                                  native_git_extension native_python_variable_explorer)
     if(MSVC)
         target_compile_options(${extension_target} PRIVATE /W4 /permissive-)
     else()
@@ -175,7 +198,7 @@ if(BUILD_TESTING)
     )
     target_link_libraries(nativeide_tests PRIVATE nativeide_core Qt6::Test)
     add_dependencies(nativeide_tests native_hello_extension native_code_tidy_extension
-                     native_git_extension)
+                     native_git_extension native_python_variable_explorer)
     add_test(NAME nativeide_tests COMMAND nativeide_tests)
     set_tests_properties(nativeide_tests PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
@@ -212,4 +235,10 @@ install(TARGETS native_git_extension
 )
 install(FILES extensions/git/extension.json
         DESTINATION bin/extensions/bundled RENAME native_git.json)
+install(TARGETS native_python_variable_explorer
+    LIBRARY DESTINATION bin/extensions/bundled
+    RUNTIME DESTINATION bin/extensions/bundled
+)
+install(FILES extensions/python_variable_explorer/extension.json
+        DESTINATION bin/extensions/bundled RENAME native_python_variable_explorer.json)
 install(FILES src/languageplugin.h src/extension_api.h src/EXTENSION_ABI.md DESTINATION sdk)

@@ -1,6 +1,7 @@
 #include "codeeditor.h"
 #include "extensionmanager.h"
 #include "extensionmanagerdialog.h"
+#include "extensionstoredialog.h"
 #include "languagemanager.h"
 #include "keybindingsdialog.h"
 #include "mainwindow.h"
@@ -28,6 +29,7 @@
 #include <QSignalSpy>
 #include <QStatusBar>
 #include <QLineEdit>
+#include <QLabel>
 #include <QListWidget>
 #include <QMimeData>
 #include <QPlainTextEdit>
@@ -116,8 +118,10 @@ private slots:
     void lineNumberGutterTracksDocument();
     void pluginExplorerHasMarketplaceControls();
     void loadsNativeBinaryExtension();
+    void pythonVariableExplorerRunsIndependently();
     void codeTidyFormatsDocumentAndSave();
     void extensionManagerShowsManifestControls();
+    void extensionStoreHasMarketplaceControls();
     void settingsCenterIncludesCoreAndPluginPages();
     void lightThemeUsesDarkText();
     void darkThemeKeepsCompactChrome();
@@ -495,6 +499,48 @@ void EditorTests::loadsNativeBinaryExtension()
     QCOMPARE(editor->toPlainText(), QStringLiteral("Hello from Native Hello"));
 }
 
+void EditorTests::pythonVariableExplorerRunsIndependently()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString path = directory.filePath(QStringLiteral("variables.py"));
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("answer = 42\nname = 'Native Studio'\nitems = [1, 2, 3]\n");
+    file.close();
+
+    MainWindow window;
+    window.loadServicesNow();
+    window.openFile(path);
+    const QString extensionId = QStringLiteral("dev.nativestudio.python_variable_explorer");
+    const auto installed = window.extensionManager()->installedExtensions();
+    const auto found = std::find_if(installed.cbegin(), installed.cend(),
+        [&extensionId](const auto &extension) { return extension.id == extensionId; });
+    QVERIFY(found != installed.cend());
+    QVERIFY(found->bundled);
+    QVERIFY(found->loaded);
+    QVERIFY(window.extensionManager()->viewIds().contains(
+        QStringLiteral("python.variableExplorer")));
+
+    auto *action = window.findChild<QAction *>(QStringLiteral(
+        "extensionCommand.dev.nativestudio.python_variable_explorer.open"));
+    QVERIFY(action != nullptr);
+    action->trigger();
+    auto *explorer = window.findChild<QWidget *>(QStringLiteral("pythonVariableExplorer"));
+    QVERIFY(explorer != nullptr);
+    auto *run = explorer->findChild<QPushButton *>(QStringLiteral("variableExplorerRun"));
+    auto *tree = explorer->findChild<QTreeWidget *>(QStringLiteral("variableExplorerTree"));
+    auto *status = explorer->findChild<QLabel *>(QStringLiteral("variableExplorerStatus"));
+    QVERIFY(run != nullptr);
+    QVERIFY(tree != nullptr);
+    QVERIFY(status != nullptr);
+    run->click();
+    QTRY_VERIFY_WITH_TIMEOUT(status->text().contains(QStringLiteral("Captured")), 5000);
+    QVERIFY(tree->findItems(QStringLiteral("answer"), Qt::MatchExactly, 0).size() == 1);
+    QCOMPARE(tree->findItems(QStringLiteral("answer"), Qt::MatchExactly, 0)
+                 .first()->text(2), QStringLiteral("42"));
+}
+
 void EditorTests::codeTidyFormatsDocumentAndSave()
 {
     QTemporaryDir directory;
@@ -597,22 +643,17 @@ void EditorTests::extensionManagerShowsManifestControls()
     window.loadServicesNow();
     ExtensionManagerDialog dialog(window.extensionManager());
 
-    QCOMPARE(dialog.windowTitle(), QStringLiteral("Native Extension Manager"));
+    QCOMPARE(dialog.windowTitle(), QStringLiteral("Installed Extensions"));
     auto *search = dialog.findChild<QLineEdit *>(QStringLiteral("extensionSearch"));
     auto *table = dialog.findChild<QTableWidget *>(QStringLiteral("extensionTable"));
     auto *import = dialog.findChild<QPushButton *>(QStringLiteral("importExtensionManifest"));
     auto *toggle = dialog.findChild<QPushButton *>(QStringLiteral("toggleExtension"));
     auto *remove = dialog.findChild<QPushButton *>(QStringLiteral("removeExtension"));
-    auto *install = dialog.findChild<QPushButton *>(QStringLiteral("installExtensionButton"));
-    auto *refreshStore = dialog.findChild<QPushButton *>(
-        QStringLiteral("refreshExtensionCatalog"));
     QVERIFY(search != nullptr);
     QVERIFY(table != nullptr);
     QVERIFY(import != nullptr);
     QVERIFY(toggle != nullptr);
     QVERIFY(remove != nullptr);
-    QVERIFY(install != nullptr);
-    QVERIFY(refreshStore != nullptr);
     QCOMPARE(table->columnCount(), 6);
     QVERIFY(table->rowCount() >= 2);
     int bundledRow = -1;
@@ -629,6 +670,24 @@ void EditorTests::extensionManagerShowsManifestControls()
     QVERIFY(!remove->isEnabled());
 }
 
+void EditorTests::extensionStoreHasMarketplaceControls()
+{
+    MainWindow window;
+    window.loadServicesNow();
+    ExtensionStoreDialog dialog(window.extensionManager());
+
+    QCOMPARE(dialog.windowTitle(), QStringLiteral("Extension Store"));
+    QVERIFY(dialog.findChild<QLineEdit *>(QStringLiteral("extensionStoreSearch")) != nullptr);
+    auto *table = dialog.findChild<QTableWidget *>(QStringLiteral("extensionStoreTable"));
+    QVERIFY(table != nullptr);
+    QCOMPARE(table->columnCount(), 5);
+    QVERIFY(dialog.findChild<QPushButton *>(QStringLiteral("installExtensionButton")) != nullptr);
+    QVERIFY(dialog.findChild<QPushButton *>(
+        QStringLiteral("refreshExtensionCatalog")) != nullptr);
+    QVERIFY(dialog.findChild<QPushButton *>(QStringLiteral("toggleExtension")) == nullptr);
+    QVERIFY(dialog.findChild<QPushButton *>(QStringLiteral("removeExtension")) == nullptr);
+}
+
 void EditorTests::settingsCenterIncludesCoreAndPluginPages()
 {
     ApplicationSettingsGuard applicationSettings;
@@ -638,12 +697,16 @@ void EditorTests::settingsCenterIncludesCoreAndPluginPages()
         "extensions/settings/dev.nativestudio.code_tidy/python_indent_width");
     const QString gitPath = QStringLiteral(
         "extensions/settings/dev.nativestudio.git/git_path");
+    const QString variableExplorerPath = QStringLiteral(
+        "extensions/settings/dev.nativestudio.python_variable_explorer/python_path");
     SettingGuard formatGuard(formatPath);
     SettingGuard indentGuard(indentPath);
     SettingGuard gitGuard(gitPath);
+    SettingGuard variableExplorerGuard(variableExplorerPath);
     QSettings().remove(formatPath);
     QSettings().remove(indentPath);
     QSettings().remove(gitPath);
+    QSettings().remove(variableExplorerPath);
 
     MainWindow window;
     window.loadServicesNow();
@@ -678,12 +741,16 @@ void EditorTests::settingsCenterIncludesCoreAndPluginPages()
         QStringLiteral("extensionSetting.dev.nativestudio.git.git_path"));
     QVERIFY(gitExecutable != nullptr);
     QCOMPARE(gitExecutable->text(), QStringLiteral("git"));
+    auto *variableExplorerPython = dialog.findChild<QLineEdit *>(QStringLiteral(
+        "extensionSetting.dev.nativestudio.python_variable_explorer.python_path"));
+    QVERIFY(variableExplorerPython != nullptr);
+    QCOMPARE(variableExplorerPython->text(), QStringLiteral("python"));
 
     search->setText(QStringLiteral("interpreter"));
     int visibleCategories = 0;
     for (int index = 0; index < categories->count(); ++index)
         visibleCategories += categories->item(index)->isHidden() ? 0 : 1;
-    QCOMPARE(visibleCategories, 1);
+    QCOMPARE(visibleCategories, 2);
 
     formatOnSave->setChecked(false);
     pythonIndent->setValue(2);
@@ -1093,6 +1160,11 @@ void EditorTests::nativeWorkspaceFeaturesAreLazyAndAvailable()
     QCOMPARE(extensionStoreAction->text(), QStringLiteral("Extension Store…"));
     QVERIFY(window.findChild<QToolBar *>(QStringLiteral("fileToolbar"))
                 ->actions().contains(extensionStoreAction));
+    auto *manageExtensionsAction = window.findChild<QAction *>(
+        QStringLiteral("manageExtensionsAction"));
+    QVERIFY(manageExtensionsAction != nullptr);
+    QVERIFY(!window.findChild<QToolBar *>(QStringLiteral("fileToolbar"))
+                 ->actions().contains(manageExtensionsAction));
     KeybindingsDialog keybindings(window.findChildren<QAction *>(), &window);
     auto *keybindingsTable = keybindings.findChild<QTableWidget *>(QStringLiteral("keybindingsTable"));
     QVERIFY(keybindingsTable != nullptr);

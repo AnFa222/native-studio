@@ -3,6 +3,7 @@
 #include "codeeditor.h"
 #include "extensionmanager.h"
 #include "extensionmanagerdialog.h"
+#include "extensionstoredialog.h"
 #include "keybindingsdialog.h"
 #include "languagemanager.h"
 #include "pluginmanagerdialog.h"
@@ -593,9 +594,12 @@ void MainWindow::createActions()
     pluginsMenu->addAction(tr("Plugin Explorer…"), this, &MainWindow::managePlugins);
     pluginsMenu->addAction(tr("Rescan Language Plugins"), this, &MainWindow::reloadLanguagePlugins);
     auto *extensionStoreAction = m_extensionsMenu->addAction(
-        tr("Extension Store…"), this, &MainWindow::manageExtensions);
+        tr("Extension Store…"), this, &MainWindow::showExtensionStore);
     extensionStoreAction->setObjectName(QStringLiteral("extensionStoreAction"));
     toolbar->insertAction(saveAction, extensionStoreAction);
+    auto *manageExtensionsAction = m_extensionsMenu->addAction(
+        tr("Manage Installed Extensions…"), this, &MainWindow::manageExtensions);
+    manageExtensionsAction->setObjectName(QStringLiteral("manageExtensionsAction"));
     m_extensionsMenu->addSeparator();
     runMenu->addAction(m_runAction);
     viewMenu->addAction(m_projectExplorerDock->toggleViewAction());
@@ -1416,6 +1420,12 @@ void MainWindow::managePlugins()
 void MainWindow::manageExtensions()
 {
     ExtensionManagerDialog dialog(m_extensionManager, this);
+    dialog.exec();
+}
+
+void MainWindow::showExtensionStore()
+{
+    ExtensionStoreDialog dialog(m_extensionManager, this);
     dialog.exec();
 }
 

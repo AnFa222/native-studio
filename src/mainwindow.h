@@ -80,6 +80,7 @@ private slots:
     void reloadLanguagePlugins();
     void managePlugins();
     void manageExtensions();
+    void showExtensionStore();
     void runCurrentFile();
     void quickOpen();
     void showProjectSearch();
