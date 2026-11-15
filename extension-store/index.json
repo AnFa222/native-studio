@@ -2,20 +2,6 @@
   "schemaVersion": 1,
   "extensions": [
     {
-      "id": "dev.nativestudio.hello",
-      "name": "Native Hello",
-      "version": "1.1.0",
-      "description": "Example native extension with a command and direct editor host calls.",
-      "author": "Native Studio",
-      "permissions": ["ui.commands", "editor.write"],
-      "manifestUrl": "https://raw.githubusercontent.com/AnFa222/native-studio/main/extensions/hello/extension.json",
-      "binaries": {
-        "windows": "https://github.com/AnFa222/native-studio/releases/latest/download/native_hello.dll",
-        "linux": "https://github.com/AnFa222/native-studio/releases/latest/download/native_hello.so",
-        "macos": "https://github.com/AnFa222/native-studio/releases/latest/download/native_hello.dylib"
-      }
-    },
-    {
       "id": "dev.nativestudio.python_variable_explorer",
       "name": "Python Variable Explorer",
       "version": "1.0.1",

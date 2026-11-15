@@ -117,7 +117,6 @@ private slots:
     void runActionTracksSupportedFile();
     void lineNumberGutterTracksDocument();
     void pluginExplorerHasMarketplaceControls();
-    void loadsNativeBinaryExtension();
     void pythonVariableExplorerRunsIndependently();
     void codeTidyFormatsDocumentAndSave();
     void extensionManagerShowsManifestControls();
@@ -173,9 +172,6 @@ void EditorTests::loadsServicesIncrementally()
     QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 5000);
     QVERIFY(window.languageManager()->languages().contains(QStringLiteral("Python")));
     const auto extensions = window.extensionManager()->loadedExtensions();
-    QVERIFY(std::any_of(extensions.cbegin(), extensions.cend(), [](const auto &extension) {
-        return extension.id == QStringLiteral("dev.nativestudio.hello");
-    }));
     QVERIFY(std::any_of(extensions.cbegin(), extensions.cend(), [](const auto &extension) {
         return extension.id == QStringLiteral("dev.nativestudio.code_tidy");
     }));
@@ -460,45 +456,6 @@ void EditorTests::pluginExplorerHasMarketplaceControls()
     QVERIFY(table->rowCount() >= 2);
 }
 
-void EditorTests::loadsNativeBinaryExtension()
-{
-    MainWindow window;
-    window.loadServicesNow();
-    auto *manager = window.extensionManager();
-    QVERIFY(manager != nullptr);
-    const auto extensions = manager->loadedExtensions();
-    QVERIFY(std::any_of(extensions.cbegin(), extensions.cend(), [](const auto &extension) {
-        return extension.id == QStringLiteral("dev.nativestudio.hello");
-    }));
-    const auto installed = manager->installedExtensions();
-    const auto installedHello = std::find_if(
-        installed.cbegin(), installed.cend(), [](const auto &extension) {
-            return extension.id == QStringLiteral("dev.nativestudio.hello");
-        });
-    QVERIFY(installedHello != installed.cend());
-    QCOMPARE(installedHello->abiVersion, uint32_t(NS_EXTENSION_ABI_VERSION));
-    QVERIFY(QFileInfo::exists(installedHello->manifestPath));
-    QVERIFY(installedHello->loaded);
-    QVERIFY(installedHello->bundled);
-    QVERIFY(QDir::fromNativeSeparators(installedHello->manifestPath)
-                .contains(QStringLiteral("/extensions/bundled/")));
-    const QString commandId = QStringLiteral("dev.nativestudio.hello.say_hello");
-    QVERIFY(manager->commandIds().contains(commandId));
-    auto *action = window.findChild<QAction *>(QStringLiteral("extensionCommand.%1").arg(commandId));
-    QVERIFY(action != nullptr);
-    action->trigger();
-    QVERIFY(window.statusBar()->currentMessage().contains(QStringLiteral("native extension"),
-                                                           Qt::CaseInsensitive));
-    const QString insertId = QStringLiteral("dev.nativestudio.hello.insert_text");
-    auto *insertAction = window.findChild<QAction *>(
-        QStringLiteral("extensionCommand.%1").arg(insertId));
-    QVERIFY(insertAction != nullptr);
-    insertAction->trigger();
-    auto *editor = qobject_cast<CodeEditor *>(window.editorTabs()->currentWidget());
-    QVERIFY(editor != nullptr);
-    QCOMPARE(editor->toPlainText(), QStringLiteral("Hello from Native Hello"));
-}
-
 void EditorTests::pythonVariableExplorerRunsIndependently()
 {
     QTemporaryDir directory;
@@ -513,13 +470,25 @@ void EditorTests::pythonVariableExplorerRunsIndependently()
     window.loadServicesNow();
     window.openFile(path);
     const QString extensionId = QStringLiteral("dev.nativestudio.python_variable_explorer");
-    const auto installed = window.extensionManager()->installedExtensions();
-    const auto found = std::find_if(installed.cbegin(), installed.cend(),
+    auto *manager = window.extensionManager();
+    const auto installed = manager->installedExtensions();
+    QVERIFY(std::none_of(installed.cbegin(), installed.cend(),
+        [&extensionId](const auto &extension) {
+            return extension.id == extensionId && extension.bundled;
+        }));
+    const QString storeDirectory = QDir(QCoreApplication::applicationDirPath())
+        .filePath(QStringLiteral("extensions/store"));
+    const auto loadedBefore = manager->loadedExtensions();
+    if (!std::any_of(loadedBefore.cbegin(), loadedBefore.cend(),
+        [&extensionId](const auto &extension) { return extension.id == extensionId; }))
+        QCOMPARE(manager->loadExtensions(storeDirectory, false), 1);
+    const auto loaded = manager->loadedExtensions();
+    const auto found = std::find_if(loaded.cbegin(), loaded.cend(),
         [&extensionId](const auto &extension) { return extension.id == extensionId; });
-    QVERIFY(found != installed.cend());
-    QVERIFY(found->bundled);
+    QVERIFY(found != loaded.cend());
+    QVERIFY(!found->bundled);
     QVERIFY(found->loaded);
-    QVERIFY(window.extensionManager()->viewIds().contains(
+    QVERIFY(manager->viewIds().contains(
         QStringLiteral("python.variableExplorer")));
 
     QVERIFY(window.showExtensionView(QStringLiteral("python.variableExplorer")));
@@ -697,16 +666,12 @@ void EditorTests::settingsCenterIncludesCoreAndPluginPages()
         "extensions/settings/dev.nativestudio.code_tidy/python_indent_width");
     const QString gitPath = QStringLiteral(
         "extensions/settings/dev.nativestudio.git/git_path");
-    const QString variableExplorerPath = QStringLiteral(
-        "extensions/settings/dev.nativestudio.python_variable_explorer/python_path");
     SettingGuard formatGuard(formatPath);
     SettingGuard indentGuard(indentPath);
     SettingGuard gitGuard(gitPath);
-    SettingGuard variableExplorerGuard(variableExplorerPath);
     QSettings().remove(formatPath);
     QSettings().remove(indentPath);
     QSettings().remove(gitPath);
-    QSettings().remove(variableExplorerPath);
 
     MainWindow window;
     window.loadServicesNow();
@@ -741,16 +706,11 @@ void EditorTests::settingsCenterIncludesCoreAndPluginPages()
         QStringLiteral("extensionSetting.dev.nativestudio.git.git_path"));
     QVERIFY(gitExecutable != nullptr);
     QCOMPARE(gitExecutable->text(), QStringLiteral("git"));
-    auto *variableExplorerPython = dialog.findChild<QLineEdit *>(QStringLiteral(
-        "extensionSetting.dev.nativestudio.python_variable_explorer.python_path"));
-    QVERIFY(variableExplorerPython != nullptr);
-    QCOMPARE(variableExplorerPython->text(), QStringLiteral("python"));
-
     search->setText(QStringLiteral("interpreter"));
     int visibleCategories = 0;
     for (int index = 0; index < categories->count(); ++index)
         visibleCategories += categories->item(index)->isHidden() ? 0 : 1;
-    QCOMPARE(visibleCategories, 2);
+    QCOMPARE(visibleCategories, 1);
 
     formatOnSave->setChecked(false);
     pythonIndent->setValue(2);

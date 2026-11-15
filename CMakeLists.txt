@@ -3,7 +3,7 @@ if(POLICY CMP0141)
     cmake_policy(SET CMP0141 NEW)
 endif()
 
-project(NativeStudio VERSION 0.21.1 LANGUAGES CXX)
+project(NativeStudio VERSION 0.22.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -65,23 +65,18 @@ set_target_properties(NativeStudio PROPERTIES
 )
 
 set(BUNDLED_EXTENSION_BUILD_DIR "${CMAKE_BINARY_DIR}/extensions/bundled")
+set(STORE_EXTENSION_BUILD_DIR "${CMAKE_BINARY_DIR}/extensions/store")
 file(MAKE_DIRECTORY "${BUNDLED_EXTENSION_BUILD_DIR}")
-
-add_library(native_hello_extension MODULE
-    extensions/hello/hello_extension.cpp
-    src/extension_api.h
-)
-target_include_directories(native_hello_extension PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
-set_target_properties(native_hello_extension PROPERTIES
-    PREFIX ""
-    OUTPUT_NAME "native_hello"
-    LIBRARY_OUTPUT_DIRECTORY "${BUNDLED_EXTENSION_BUILD_DIR}"
-    RUNTIME_OUTPUT_DIRECTORY "${BUNDLED_EXTENSION_BUILD_DIR}"
-    LIBRARY_OUTPUT_DIRECTORY_RELEASE "${BUNDLED_EXTENSION_BUILD_DIR}"
-    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${BUNDLED_EXTENSION_BUILD_DIR}"
-)
-configure_file(extensions/hello/extension.json
-               "${BUNDLED_EXTENSION_BUILD_DIR}/native_hello.json" COPYONLY)
+file(MAKE_DIRECTORY "${STORE_EXTENSION_BUILD_DIR}")
+# Remove obsolete built-in artifacts when reconfiguring an existing build tree.
+file(REMOVE "${BUNDLED_EXTENSION_BUILD_DIR}/native_hello.dll"
+            "${BUNDLED_EXTENSION_BUILD_DIR}/native_hello.so"
+            "${BUNDLED_EXTENSION_BUILD_DIR}/native_hello.dylib"
+            "${BUNDLED_EXTENSION_BUILD_DIR}/native_hello.json"
+            "${BUNDLED_EXTENSION_BUILD_DIR}/native_python_variable_explorer.dll"
+            "${BUNDLED_EXTENSION_BUILD_DIR}/native_python_variable_explorer.so"
+            "${BUNDLED_EXTENSION_BUILD_DIR}/native_python_variable_explorer.dylib"
+            "${BUNDLED_EXTENSION_BUILD_DIR}/native_python_variable_explorer.json")
 
 add_library(native_code_tidy_extension MODULE
     extensions/code_tidy/code_tidy_extension.cpp
@@ -129,16 +124,16 @@ target_link_libraries(native_python_variable_explorer PRIVATE Qt6::Widgets)
 set_target_properties(native_python_variable_explorer PROPERTIES
     PREFIX ""
     OUTPUT_NAME "native_python_variable_explorer"
-    LIBRARY_OUTPUT_DIRECTORY "${BUNDLED_EXTENSION_BUILD_DIR}"
-    RUNTIME_OUTPUT_DIRECTORY "${BUNDLED_EXTENSION_BUILD_DIR}"
-    LIBRARY_OUTPUT_DIRECTORY_RELEASE "${BUNDLED_EXTENSION_BUILD_DIR}"
-    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${BUNDLED_EXTENSION_BUILD_DIR}"
+    LIBRARY_OUTPUT_DIRECTORY "${STORE_EXTENSION_BUILD_DIR}"
+    RUNTIME_OUTPUT_DIRECTORY "${STORE_EXTENSION_BUILD_DIR}"
+    LIBRARY_OUTPUT_DIRECTORY_RELEASE "${STORE_EXTENSION_BUILD_DIR}"
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${STORE_EXTENSION_BUILD_DIR}"
 )
 configure_file(extensions/python_variable_explorer/extension.json
-               "${BUNDLED_EXTENSION_BUILD_DIR}/native_python_variable_explorer.json" COPYONLY)
+               "${STORE_EXTENSION_BUILD_DIR}/native_python_variable_explorer.json" COPYONLY)
 
-foreach(extension_target IN ITEMS native_hello_extension native_code_tidy_extension
-                                  native_git_extension native_python_variable_explorer)
+foreach(extension_target IN ITEMS native_code_tidy_extension native_git_extension
+                                  native_python_variable_explorer)
     if(MSVC)
         target_compile_options(${extension_target} PRIVATE /W4 /permissive-)
     else()
@@ -197,8 +192,8 @@ if(BUILD_TESTING)
         tests/editor_tests.cpp
     )
     target_link_libraries(nativeide_tests PRIVATE nativeide_core Qt6::Test)
-    add_dependencies(nativeide_tests native_hello_extension native_code_tidy_extension
-                     native_git_extension native_python_variable_explorer)
+    add_dependencies(nativeide_tests native_code_tidy_extension native_git_extension
+                     native_python_variable_explorer)
     add_test(NAME nativeide_tests COMMAND nativeide_tests)
     set_tests_properties(nativeide_tests PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
@@ -217,12 +212,6 @@ install(TARGETS language_python
     LIBRARY DESTINATION bin/plugins/languages
     RUNTIME DESTINATION bin/plugins/languages
 )
-install(TARGETS native_hello_extension
-    LIBRARY DESTINATION bin/extensions/bundled
-    RUNTIME DESTINATION bin/extensions/bundled
-)
-install(FILES extensions/hello/extension.json
-        DESTINATION bin/extensions/bundled RENAME native_hello.json)
 install(TARGETS native_code_tidy_extension
     LIBRARY DESTINATION bin/extensions/bundled
     RUNTIME DESTINATION bin/extensions/bundled
@@ -235,10 +224,4 @@ install(TARGETS native_git_extension
 )
 install(FILES extensions/git/extension.json
         DESTINATION bin/extensions/bundled RENAME native_git.json)
-install(TARGETS native_python_variable_explorer
-    LIBRARY DESTINATION bin/extensions/bundled
-    RUNTIME DESTINATION bin/extensions/bundled
-)
-install(FILES extensions/python_variable_explorer/extension.json
-        DESTINATION bin/extensions/bundled RENAME native_python_variable_explorer.json)
 install(FILES src/languageplugin.h src/extension_api.h src/EXTENSION_ABI.md DESTINATION sdk)
