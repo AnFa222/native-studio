@@ -8,11 +8,11 @@
 
 class QProcess;
 
-class PythonLanguagePlugin final : public QObject, public LanguagePlugin
+class PythonLanguagePlugin final : public QObject, public LanguagePlugin, public LanguageStatusProvider
 {
     Q_OBJECT
     Q_PLUGIN_METADATA(IID LanguagePlugin_iid FILE "pythonplugin.json")
-    Q_INTERFACES(LanguagePlugin)
+    Q_INTERFACES(LanguagePlugin LanguageStatusProvider)
 
 public:
     ~PythonLanguagePlugin() override;
@@ -23,8 +23,11 @@ public:
     [[nodiscard]] RunConfiguration runConfiguration(const QString &filePath) const override;
     [[nodiscard]] QStringList completionItems(const QString &documentText) const override;
     [[nodiscard]] QList<CodeDiagnostic> diagnostics(const QString &documentText) const override;
+    QWidget *createStatusWidget(QWidget *parent) override;
 
 private:
+    [[nodiscard]] QString interpreterExecutable() const;
+    [[nodiscard]] QStringList interpreterPrefixArguments(const QString &executable) const;
     [[nodiscard]] bool ensureAnalyzerRunning() const;
     [[nodiscard]] std::optional<QList<CodeDiagnostic>>
         analyzerDiagnostics(const QString &documentText) const;

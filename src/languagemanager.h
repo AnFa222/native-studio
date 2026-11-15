@@ -12,6 +12,7 @@
 class QPluginLoader;
 class QSyntaxHighlighter;
 class QTextDocument;
+class QWidget;
 
 struct LanguagePluginInfo
 {
@@ -21,6 +22,12 @@ struct LanguagePluginInfo
     QString filePath;
     QStringList extensions;
     bool bundled = false;
+};
+
+struct LanguageStatusWidgetInfo
+{
+    QWidget *widget = nullptr;
+    QStringList extensions;
 };
 
 class LanguageManager final : public QObject
@@ -44,6 +51,7 @@ public:
                                               const QString &documentText) const;
     [[nodiscard]] QList<CodeDiagnostic> diagnostics(const QString &filePath,
                                                     const QString &documentText) const;
+    [[nodiscard]] QList<LanguageStatusWidgetInfo> createStatusWidgets(QWidget *parent) const;
     [[nodiscard]] static QString userPluginDirectory();
     static void applyPendingOperations();
 
@@ -54,6 +62,7 @@ signals:
 private:
     struct LoadedPlugin {
         std::unique_ptr<QPluginLoader> loader;
+        QObject *instance = nullptr;
         LanguagePlugin *plugin = nullptr;
         LanguagePluginInfo info;
     };

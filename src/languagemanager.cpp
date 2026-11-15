@@ -60,7 +60,7 @@ bool LanguageManager::loadPluginFile(const QString &filePath, bool bundled)
     info.extensions = plugin->fileExtensions();
     info.bundled = bundled;
     const QString languageName = plugin->languageName();
-    m_plugins.push_back({std::move(loader), plugin, info});
+    m_plugins.push_back({std::move(loader), instance, plugin, info});
     emit pluginLoaded(languageName);
     return true;
 }
@@ -180,6 +180,18 @@ QList<CodeDiagnostic> LanguageManager::diagnostics(const QString &filePath,
 {
     const auto *plugin = m_byExtension.value(QFileInfo(filePath).suffix().toLower(), nullptr);
     return plugin ? plugin->diagnostics(documentText) : QList<CodeDiagnostic>{};
+}
+
+QList<LanguageStatusWidgetInfo> LanguageManager::createStatusWidgets(QWidget *parent) const
+{
+    QList<LanguageStatusWidgetInfo> widgets;
+    for (const auto &loaded : m_plugins) {
+        auto *provider = qobject_cast<LanguageStatusProvider *>(loaded.instance);
+        if (!provider) continue;
+        if (QWidget *widget = provider->createStatusWidget(parent))
+            widgets.push_back({widget, loaded.plugin->fileExtensions()});
+    }
+    return widgets;
 }
 
 QString LanguageManager::userPluginDirectory()

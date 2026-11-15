@@ -1,16 +1,24 @@
 #include "terminalwidget.h"
 
 #include <QDir>
+#include <QColorDialog>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QEvent>
 #include <QFileInfo>
 #include <QFontDatabase>
+#include <QFontComboBox>
+#include <QFormLayout>
 #include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QKeySequence>
 #include <QLabel>
 #include <QPlainTextEdit>
 #include <QProcess>
+#include <QPushButton>
 #include <QScrollBar>
+#include <QSettings>
+#include <QSpinBox>
 #include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -60,24 +68,34 @@ TerminalWidget::TerminalWidget(QWidget *parent)
     connect(m_runner, &QProcess::stateChanged, this, &TerminalWidget::updateTerminateButton);
     connect(m_shell, &QProcess::finished, this, [this] {
         m_shellStarted = false;
+        if (m_shellTerminationRequested)
+            appendMessage(tr("[Terminal shell stopped]\n"));
         updateTerminateButton();
     });
     connect(m_runner, &QProcess::finished, this, [this](int exitCode, QProcess::ExitStatus) {
         readRunnerOutput();
-        appendMessage(tr("\n[Process exited with code %1]\n").arg(exitCode));
+        if (m_runnerTerminationRequested)
+            appendMessage(tr("[Process terminated]\n"));
+        else
+            appendMessage(tr("\n[Process exited with code %1]\n").arg(exitCode));
         emit commandFinished(exitCode);
     });
-    connect(m_shell, &QProcess::errorOccurred, this, [this](QProcess::ProcessError) {
+    connect(m_shell, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
+        if (m_shellTerminationRequested && error == QProcess::Crashed) return;
         appendMessage(tr("[Terminal error: %1]\n").arg(m_shell->errorString()));
     });
-    connect(m_runner, &QProcess::errorOccurred, this, [this](QProcess::ProcessError) {
+    connect(m_runner, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
+        if (m_runnerTerminationRequested && error == QProcess::Crashed) return;
         appendMessage(tr("[Run error: %1]\n").arg(m_runner->errorString()));
     });
+    applyAppearance();
     updateTerminateButton();
 }
 
 TerminalWidget::~TerminalWidget()
 {
+    m_runnerTerminationRequested = true;
+    m_shellTerminationRequested = true;
     for (auto *process : {m_runner, m_shell}) {
         if (process->state() == QProcess::NotRunning) continue;
         process->terminate();
@@ -92,6 +110,7 @@ void TerminalWidget::startShell()
 {
     if (m_shellStarted) return;
     m_shellStarted = true;
+    m_shellTerminationRequested = false;
     m_shell->setWorkingDirectory(m_workingDirectory);
 #ifdef Q_OS_WIN
     m_shell->start(QStringLiteral("cmd.exe"), {QStringLiteral("/Q")});
@@ -103,6 +122,111 @@ void TerminalWidget::startShell()
 void TerminalWidget::startDeferred()
 {
     startShell();
+}
+
+void TerminalWidget::applyAppearance()
+{
+    QSettings settings;
+    QFont terminalFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    terminalFont.setFamily(settings.value(QStringLiteral("terminal/fontFamily"),
+                                           terminalFont.family()).toString());
+    terminalFont.setPointSize(qBound(8, settings.value(QStringLiteral("terminal/fontSize"),
+                                                        qMax(8, terminalFont.pointSize())).toInt(), 32));
+    m_output->setFont(terminalFont);
+    const QColor foreground(settings.value(QStringLiteral("terminal/foreground"),
+                                            QStringLiteral("#ffffff")).toString());
+    const QColor background(settings.value(QStringLiteral("terminal/background"),
+                                            QStringLiteral("#010409")).toString());
+    m_output->setStyleSheet(QStringLiteral(
+        "QPlainTextEdit#terminalOutput { background: %1; color: %2; border: 0; "
+        "selection-background-color: #1f6feb; selection-color: #ffffff; padding: 5px 8px; }")
+        .arg(background.isValid() ? background.name() : QStringLiteral("#010409"),
+             foreground.isValid() ? foreground.name() : QStringLiteral("#ffffff")));
+}
+
+void TerminalWidget::showAppearanceSettings(QWidget *parent)
+{
+    QSettings settings;
+    const QFont defaultFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    QColor foreground(settings.value(QStringLiteral("terminal/foreground"),
+                                      QStringLiteral("#ffffff")).toString());
+    QColor background(settings.value(QStringLiteral("terminal/background"),
+                                      QStringLiteral("#010409")).toString());
+
+    QDialog dialog(parent ? parent : this);
+    dialog.setObjectName(QStringLiteral("settingsDialog"));
+    dialog.setWindowTitle(tr("Settings"));
+    dialog.resize(480, 260);
+    auto *layout = new QVBoxLayout(&dialog);
+    auto *heading = new QLabel(tr("Terminal Appearance"), &dialog);
+    heading->setObjectName(QStringLiteral("settingsHeading"));
+    layout->addWidget(heading);
+    auto *form = new QFormLayout;
+    auto *fontFamily = new QFontComboBox(&dialog);
+    fontFamily->setObjectName(QStringLiteral("terminalFontFamily"));
+    fontFamily->setCurrentFont(QFont(settings.value(QStringLiteral("terminal/fontFamily"),
+                                              defaultFont.family()).toString()));
+    auto *fontSize = new QSpinBox(&dialog);
+    fontSize->setObjectName(QStringLiteral("terminalFontSize"));
+    fontSize->setRange(8, 32);
+    fontSize->setSuffix(tr(" pt"));
+    fontSize->setValue(settings.value(QStringLiteral("terminal/fontSize"),
+                                      qMax(8, defaultFont.pointSize())).toInt());
+    auto *foregroundButton = new QPushButton(&dialog);
+    foregroundButton->setObjectName(QStringLiteral("terminalForegroundColor"));
+    auto *backgroundButton = new QPushButton(&dialog);
+    backgroundButton->setObjectName(QStringLiteral("terminalBackgroundColor"));
+    const auto updateColorButton = [](QPushButton *button, const QColor &color) {
+        button->setText(color.name().toUpper());
+        button->setStyleSheet(QStringLiteral("background: %1; color: %2;")
+            .arg(color.name(), color.lightness() < 128 ? QStringLiteral("#ffffff")
+                                                       : QStringLiteral("#000000")));
+    };
+    updateColorButton(foregroundButton, foreground);
+    updateColorButton(backgroundButton, background);
+    connect(foregroundButton, &QPushButton::clicked, &dialog, [&] {
+        const QColor selected = QColorDialog::getColor(foreground, &dialog,
+                                                        tr("Terminal Text Color"));
+        if (selected.isValid()) {
+            foreground = selected;
+            updateColorButton(foregroundButton, foreground);
+        }
+    });
+    connect(backgroundButton, &QPushButton::clicked, &dialog, [&] {
+        const QColor selected = QColorDialog::getColor(background, &dialog,
+                                                        tr("Terminal Background Color"));
+        if (selected.isValid()) {
+            background = selected;
+            updateColorButton(backgroundButton, background);
+        }
+    });
+    form->addRow(tr("Font:"), fontFamily);
+    form->addRow(tr("Font size:"), fontSize);
+    form->addRow(tr("Text color:"), foregroundButton);
+    form->addRow(tr("Background:"), backgroundButton);
+    layout->addLayout(form);
+    layout->addStretch();
+    auto *buttons = new QDialogButtonBox(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel | QDialogButtonBox::RestoreDefaults,
+        &dialog);
+    layout->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    connect(buttons->button(QDialogButtonBox::RestoreDefaults), &QPushButton::clicked,
+            &dialog, [&] {
+        fontFamily->setCurrentFont(defaultFont);
+        fontSize->setValue(qMax(8, defaultFont.pointSize()));
+        foreground = QColor(QStringLiteral("#ffffff"));
+        background = QColor(QStringLiteral("#010409"));
+        updateColorButton(foregroundButton, foreground);
+        updateColorButton(backgroundButton, background);
+    });
+    if (dialog.exec() != QDialog::Accepted) return;
+    settings.setValue(QStringLiteral("terminal/fontFamily"), fontFamily->currentFont().family());
+    settings.setValue(QStringLiteral("terminal/fontSize"), fontSize->value());
+    settings.setValue(QStringLiteral("terminal/foreground"), foreground.name());
+    settings.setValue(QStringLiteral("terminal/background"), background.name());
+    applyAppearance();
 }
 
 void TerminalWidget::setWorkingDirectory(const QString &directory)
@@ -183,8 +307,13 @@ void TerminalWidget::submitCurrentInput()
 void TerminalWidget::terminateActiveProcess()
 {
     QProcess *target = nullptr;
-    if (m_runner->state() != QProcess::NotRunning) target = m_runner;
-    else if (m_shell->state() != QProcess::NotRunning) target = m_shell;
+    if (m_runner->state() != QProcess::NotRunning) {
+        target = m_runner;
+        m_runnerTerminationRequested = true;
+    } else if (m_shell->state() != QProcess::NotRunning) {
+        target = m_shell;
+        m_shellTerminationRequested = true;
+    }
     if (!target) return;
 
     appendMessage(target == m_runner ? tr("\n[Terminating running program…]\n")
@@ -209,6 +338,7 @@ void TerminalWidget::executeProgram(const QString &program, const QStringList &a
         return;
     }
     const QString directory = workingDirectory.isEmpty() ? m_workingDirectory : workingDirectory;
+    m_runnerTerminationRequested = false;
     m_runner->setWorkingDirectory(directory);
     appendMessage(tr("\n[Running %1 %2]\n").arg(program, arguments.join(QLatin1Char(' '))));
     m_runner->start(program, arguments);

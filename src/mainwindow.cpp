@@ -15,6 +15,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QHeaderView>
+#include <QLabel>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QPainter>
@@ -49,6 +50,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_tabs, &QTabWidget::currentChanged, this, [this] {
         updateRunAction();
         updateProblems(currentEditor());
+        updateLanguageStatusWidgets();
     });
 
     connect(m_projectExplorer, &ProjectExplorer::fileActivated, this, &MainWindow::openFile);
@@ -97,8 +99,14 @@ MainWindow::MainWindow(QWidget *parent)
     createActions();
     applyTheme();
     m_extensionManager = new ExtensionManager(this, m_extensionsMenu, this);
+    m_cursorStatus = new QLabel(this);
+    m_cursorStatus->setObjectName(QStringLiteral("cursorStatus"));
+    statusBar()->addPermanentWidget(m_cursorStatus);
     connect(m_languageManager, &LanguageManager::pluginLoaded,
-            this, [this] { refreshLanguageFeatures(); });
+            this, [this] {
+        refreshLanguageFeatures();
+        rebuildLanguageStatusWidgets();
+    });
     connect(m_languageManager, &LanguageManager::loadingFinished, this, [this](int) {
         m_languageLoadingDone = true;
         updateStartupStatus();
@@ -157,7 +165,7 @@ void MainWindow::updateStartupStatus()
     if (!m_languageLoadingDone || !m_extensionLoadingDone) return;
     statusBar()->showMessage(tr("Ready — %1 language plugin(s), %2 native extension(s) loaded")
                                  .arg(m_languageManager->languages().size())
-                                 .arg(m_extensionManager->loadedExtensions().size()));
+                                 .arg(m_extensionManager->loadedExtensions().size()), 3000);
     emit servicesLoaded();
 }
 
@@ -218,6 +226,7 @@ void MainWindow::createActions()
     m_extensionsMenu = menuBar()->addMenu(tr("&Extensions"));
     auto *runMenu = menuBar()->addMenu(tr("&Run"));
     auto *viewMenu = menuBar()->addMenu(tr("&View"));
+    auto *settingsMenu = menuBar()->addMenu(tr("&Settings"));
     auto *toolbar = addToolBar(tr("File"));
     toolbar->setObjectName(QStringLiteral("fileToolbar"));
     toolbar->setMovable(false);
@@ -257,6 +266,10 @@ void MainWindow::createActions()
     runMenu->addAction(m_runAction);
     viewMenu->addAction(m_terminalDock->toggleViewAction());
     viewMenu->addAction(m_problemsDock->toggleViewAction());
+    auto *preferencesAction = settingsMenu->addAction(tr("Preferences…"), this, [this] {
+        m_terminal->showAppearanceSettings(this);
+    });
+    preferencesAction->setObjectName(QStringLiteral("preferencesAction"));
 }
 
 void MainWindow::applyTheme()
@@ -283,11 +296,13 @@ void MainWindow::applyTheme()
         QToolButton:hover { background: #30363d; color: #ffffff; }
         QToolButton:pressed { background: #1f6feb; }
         QPlainTextEdit#codeEditor { background: #0d1117; color: #e6edf3; border: 0; selection-background-color: #264f78; selection-color: #ffffff; padding: 4px 0 0 6px; }
-        QPlainTextEdit#terminalOutput { background: #010409; color: #7ee787; border: 0; selection-background-color: #1f6feb; selection-color: #ffffff; padding: 5px 8px; }
+        QPlainTextEdit#terminalOutput { background: #010409; color: #ffffff; border: 0; selection-background-color: #1f6feb; selection-color: #ffffff; padding: 5px 8px; }
         QLineEdit { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 4px; padding: 5px 7px; selection-background-color: #1f6feb; }
         QLineEdit:focus { border: 1px solid #58a6ff; }
         QLineEdit#terminalInput { background: #010409; color: #79c0ff; border-color: #21262d; }
         QDialog#pluginExplorer { background: #0d1117; color: #c9d1d9; }
+        QDialog#settingsDialog { background: #0d1117; color: #c9d1d9; }
+        QLabel#settingsHeading { color: #58a6ff; font-size: 16px; font-weight: 700; }
         QLabel#pluginExplorerHeading { color: #58a6ff; font-size: 16px; font-weight: 700; }
         QLabel#pluginExplorerDescription { color: #8b949e; }
         QLabel#pluginExplorerStatus { color: #8b949e; padding: 2px; }
@@ -332,7 +347,7 @@ CodeEditor *MainWindow::addEditor(const QString &title)
     connect(editor->document(), &QTextDocument::modificationChanged, this,
             [this, editor] { updateTabTitle(editor); });
     connect(editor, &CodeEditor::cursorPositionDescriptionChanged,
-            statusBar(), [this](const QString &message) { statusBar()->showMessage(message); });
+            m_cursorStatus, &QLabel::setText);
     auto *analysisTimer = new QTimer(editor);
     analysisTimer->setSingleShot(true);
     analysisTimer->setInterval(220);
@@ -410,6 +425,7 @@ void MainWindow::openFile(const QString &path)
     updateLanguageFeatures(editor);
     updateTabTitle(editor);
     updateRunAction();
+    updateLanguageStatusWidgets();
     statusBar()->showMessage(tr("%1 — %2")
                                  .arg(QDir::toNativeSeparators(path),
                                       m_languageManager->languageForFile(path)), 3000);
@@ -447,6 +463,7 @@ bool MainWindow::saveEditor(CodeEditor *editor, bool forceDialog)
     updateLanguageFeatures(editor);
     updateTabTitle(editor);
     updateRunAction();
+    updateLanguageStatusWidgets();
     statusBar()->showMessage(tr("Saved %1").arg(QDir::toNativeSeparators(path)), 3000);
     return true;
 }
@@ -475,6 +492,32 @@ void MainWindow::refreshLanguageFeatures()
         updateLanguageFeatures(editor);
     }
     updateRunAction();
+    updateLanguageStatusWidgets();
+}
+
+void MainWindow::rebuildLanguageStatusWidgets()
+{
+    for (const auto &item : m_languageStatusItems) {
+        statusBar()->removeWidget(item.widget);
+        item.widget->deleteLater();
+    }
+    m_languageStatusItems.clear();
+    const auto widgets = m_languageManager->createStatusWidgets(statusBar());
+    for (const auto &item : widgets) {
+        statusBar()->insertWidget(0, item.widget);
+        m_languageStatusItems.push_back({item.widget, item.extensions});
+    }
+    updateLanguageStatusWidgets();
+}
+
+void MainWindow::updateLanguageStatusWidgets()
+{
+    const auto *editor = currentEditor();
+    const QString extension = editor
+        ? QFileInfo(editor->filePath()).suffix().toLower() : QString{};
+    for (const auto &item : m_languageStatusItems)
+        item.widget->setVisible(!extension.isEmpty()
+            && item.extensions.contains(extension, Qt::CaseInsensitive));
 }
 
 void MainWindow::updateLanguageFeatures(CodeEditor *editor)

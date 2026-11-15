@@ -138,6 +138,11 @@ void EditorTests::highlightsCppKeywords()
     window.loadServicesNow();
     QVERIFY(window.languageManager()->languages().contains(QStringLiteral("C++")));
     window.openFile(path);
+    auto *interpreter = window.findChild<QToolButton *>(
+        QStringLiteral("pythonInterpreterSelector"));
+    QVERIFY(interpreter != nullptr);
+    QVERIFY(interpreter->text().startsWith(QStringLiteral("Python:")));
+    QCOMPARE(interpreter->parentWidget(), window.statusBar());
     auto *editor = qobject_cast<CodeEditor *>(window.editorTabs()->currentWidget());
     QVERIFY(editor != nullptr);
     QCoreApplication::processEvents();
@@ -215,9 +220,14 @@ void EditorTests::terminalRunsProgram()
     MainWindow window;
     window.loadServicesNow();
     QVERIFY(window.terminal()->findChild<QLineEdit *>(QStringLiteral("terminalInput")) == nullptr);
-    QVERIFY(window.terminal()->findChild<QPlainTextEdit *>(QStringLiteral("terminalOutput")) != nullptr);
-    QVERIFY(window.terminal()->findChild<QToolButton *>(
-        QStringLiteral("terminateTerminalButton")) != nullptr);
+    auto *terminalView = window.terminal()->findChild<QPlainTextEdit *>(
+        QStringLiteral("terminalOutput"));
+    auto *terminate = window.terminal()->findChild<QToolButton *>(
+        QStringLiteral("terminateTerminalButton"));
+    QVERIFY(terminalView != nullptr);
+    QVERIFY(terminalView->styleSheet().contains(QStringLiteral("#ffffff")));
+    QVERIFY(terminate != nullptr);
+    QVERIFY(window.findChild<QAction *>(QStringLiteral("preferencesAction")) != nullptr);
     QSignalSpy finished(window.terminal(), &TerminalWidget::commandFinished);
 #ifdef Q_OS_WIN
     window.terminal()->executeProgram(QStringLiteral("cmd.exe"),
@@ -228,6 +238,10 @@ void EditorTests::terminalRunsProgram()
 #endif
     QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 5000);
     QVERIFY(window.terminal()->outputText().contains(QStringLiteral("terminal-ready")));
+    terminate->click();
+    QTRY_VERIFY_WITH_TIMEOUT(window.terminal()->outputText().contains(
+        QStringLiteral("Terminal shell stopped")), 3000);
+    QVERIFY(!window.terminal()->outputText().contains(QStringLiteral("Process crashed")));
 }
 
 void EditorTests::terminalAcceptsPythonInput()
@@ -284,6 +298,8 @@ void EditorTests::terminalTerminatesRunningProgram()
     terminate->click();
     QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 5000);
     QVERIFY(window.terminal()->outputText().contains(QStringLiteral("Terminating")));
+    QVERIFY(window.terminal()->outputText().contains(QStringLiteral("Process terminated")));
+    QVERIFY(!window.terminal()->outputText().contains(QStringLiteral("Process crashed")));
 }
 
 void EditorTests::runActionTracksSupportedFile()

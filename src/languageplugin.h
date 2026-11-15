@@ -7,6 +7,7 @@
 
 class QSyntaxHighlighter;
 class QTextDocument;
+class QWidget;
 
 struct RunConfiguration
 {
@@ -61,3 +62,13 @@ public:
 
 #define LanguagePlugin_iid "dev.nativestudio.LanguagePlugin/3.0"
 Q_DECLARE_INTERFACE(LanguagePlugin, LanguagePlugin_iid)
+
+class LanguageStatusProvider
+{
+public:
+    virtual ~LanguageStatusProvider() = default;
+    virtual QWidget *createStatusWidget(QWidget *parent) = 0;
+};
+
+#define LanguageStatusProvider_iid "dev.nativestudio.LanguageStatusProvider/1.0"
+Q_DECLARE_INTERFACE(LanguageStatusProvider, LanguageStatusProvider_iid)

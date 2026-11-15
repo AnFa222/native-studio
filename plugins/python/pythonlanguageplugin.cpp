@@ -2,8 +2,10 @@
 
 #include "pythonhighlighter.h"
 
+#include <QDir>
 #include <QFileInfo>
 #include <QFile>
+#include <QFileDialog>
 #include <QElapsedTimer>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -11,7 +13,9 @@
 #include <QProcess>
 #include <QRegularExpression>
 #include <QSet>
+#include <QSettings>
 #include <QStandardPaths>
+#include <QToolButton>
 
 namespace {
 struct Delimiter
@@ -158,6 +162,68 @@ PythonLanguagePlugin::~PythonLanguagePlugin()
     shutdown();
 }
 
+QString PythonLanguagePlugin::interpreterExecutable() const
+{
+    const QString configured = QSettings().value(
+        QStringLiteral("plugins/python/interpreter")).toString();
+    if (QFileInfo(configured).isFile()) return QFileInfo(configured).absoluteFilePath();
+#ifdef Q_OS_WIN
+    const QStringList candidates{QStringLiteral("python"), QStringLiteral("python3"),
+                                 QStringLiteral("py")};
+#else
+    const QStringList candidates{QStringLiteral("python3"), QStringLiteral("python")};
+#endif
+    for (const QString &candidate : candidates) {
+        const QString executable = QStandardPaths::findExecutable(candidate);
+        if (!executable.isEmpty()) return executable;
+    }
+#ifdef Q_OS_WIN
+    return QStringLiteral("py");
+#else
+    return QStringLiteral("python3");
+#endif
+}
+
+QStringList PythonLanguagePlugin::interpreterPrefixArguments(const QString &executable) const
+{
+    if (QFileInfo(executable).completeBaseName().compare(QStringLiteral("py"),
+                                                         Qt::CaseInsensitive) == 0)
+        return {QStringLiteral("-3")};
+    return {};
+}
+
+QWidget *PythonLanguagePlugin::createStatusWidget(QWidget *parent)
+{
+    auto *button = new QToolButton(parent);
+    button->setObjectName(QStringLiteral("pythonInterpreterSelector"));
+    const auto updateButton = [this, button] {
+        const QString executable = interpreterExecutable();
+        const QString name = QFileInfo(executable).fileName();
+        button->setText(name.isEmpty() ? tr("Python: Select Interpreter")
+                                       : tr("Python: %1").arg(name));
+        button->setToolTip(tr("Python interpreter: %1\nClick to select another interpreter.")
+                               .arg(QDir::toNativeSeparators(executable)));
+    };
+    updateButton();
+    connect(button, &QToolButton::clicked, this, [this, button, updateButton] {
+        const QString current = interpreterExecutable();
+#ifdef Q_OS_WIN
+        const QString filter = tr("Python executables (python.exe python3.exe py.exe);;All files (*)");
+#else
+        const QString filter = tr("All files (*)");
+#endif
+        const QString selected = QFileDialog::getOpenFileName(
+            button, tr("Select Python Interpreter"), QFileInfo(current).absolutePath(), filter);
+        if (selected.isEmpty() || !QFileInfo(selected).isFile()) return;
+        shutdown();
+        m_analyzerUnavailable = false;
+        QSettings().setValue(QStringLiteral("plugins/python/interpreter"),
+                             QFileInfo(selected).absoluteFilePath());
+        updateButton();
+    });
+    return button;
+}
+
 void PythonLanguagePlugin::shutdown()
 {
     if (!m_analyzerProcess || m_analyzerProcess->state() == QProcess::NotRunning) return;
@@ -183,19 +249,9 @@ bool PythonLanguagePlugin::ensureAnalyzerRunning() const
     if (!m_analyzerProcess)
         m_analyzerProcess = new QProcess(const_cast<PythonLanguagePlugin *>(this));
 
-#ifdef Q_OS_WIN
-    const QStringList candidates{QStringLiteral("python"), QStringLiteral("python3"),
-                                 QStringLiteral("py")};
-#else
-    const QStringList candidates{QStringLiteral("python3"), QStringLiteral("python")};
-#endif
-    for (const QString &candidate : candidates) {
-        const QString executable = QStandardPaths::findExecutable(candidate);
-        if (executable.isEmpty()) continue;
-        QStringList arguments;
-        if (QFileInfo(executable).completeBaseName().compare(QStringLiteral("py"),
-                                                             Qt::CaseInsensitive) == 0)
-            arguments.push_back(QStringLiteral("-3"));
+    const QString executable = interpreterExecutable();
+    if (!executable.isEmpty()) {
+        QStringList arguments = interpreterPrefixArguments(executable);
         arguments << QStringLiteral("-u") << QStringLiteral("-c") << script;
         m_analyzerProcess->setProgram(executable);
         m_analyzerProcess->setArguments(arguments);
@@ -276,19 +332,9 @@ QSyntaxHighlighter *PythonLanguagePlugin::createHighlighter(QTextDocument *docum
 RunConfiguration PythonLanguagePlugin::runConfiguration(const QString &filePath) const
 {
     RunConfiguration configuration;
-#ifdef Q_OS_WIN
-    configuration.program = QStandardPaths::findExecutable(QStringLiteral("python"));
-    if (configuration.program.isEmpty()) {
-        configuration.program = QStringLiteral("py");
-        configuration.arguments = {QStringLiteral("-3"), QStringLiteral("-u"),
-                                   QFileInfo(filePath).absoluteFilePath()};
-    } else {
-        configuration.arguments = {QStringLiteral("-u"), QFileInfo(filePath).absoluteFilePath()};
-    }
-#else
-    configuration.program = QStringLiteral("python3");
-    configuration.arguments = {QStringLiteral("-u"), QFileInfo(filePath).absoluteFilePath()};
-#endif
+    configuration.program = interpreterExecutable();
+    configuration.arguments = interpreterPrefixArguments(configuration.program);
+    configuration.arguments << QStringLiteral("-u") << QFileInfo(filePath).absoluteFilePath();
     configuration.workingDirectory = QFileInfo(filePath).absolutePath();
     return configuration;
 }

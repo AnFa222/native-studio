@@ -1,11 +1,13 @@
 #pragma once
 
 #include <QMainWindow>
+#include <QStringList>
 
 class CodeEditor;
 class QAction;
 class QIcon;
 class QMenu;
+class QLabel;
 class LanguageManager;
 class ExtensionManager;
 class ProjectExplorer;
@@ -75,6 +77,8 @@ private:
     void updateRunAction();
     void updateLanguageFeatures(CodeEditor *editor);
     void refreshLanguageFeatures();
+    void rebuildLanguageStatusWidgets();
+    void updateLanguageStatusWidgets();
     void updateStartupStatus();
     void updateProblems(CodeEditor *editor);
     [[nodiscard]] static QIcon createRunIcon();
@@ -89,6 +93,12 @@ private:
     QTreeWidget *m_problemsTree = nullptr;
     QAction *m_runAction = nullptr;
     QMenu *m_extensionsMenu = nullptr;
+    QLabel *m_cursorStatus = nullptr;
+    struct LanguageStatusItem {
+        QWidget *widget = nullptr;
+        QStringList extensions;
+    };
+    QList<LanguageStatusItem> m_languageStatusItems;
     QString m_projectDirectory;
     bool m_servicesStarted = false;
     bool m_languageLoadingDone = false;
