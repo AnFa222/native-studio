@@ -142,6 +142,7 @@ ExtensionManager::ExtensionManager(MainWindow *window, QMenu *extensionsMenu, QO
     m_hostApi.register_view = &ExtensionManager::hostRegisterView;
     m_hostApi.set_file_decorations = &ExtensionManager::hostSetFileDecorations;
     m_hostApi.get_active_document_path = &ExtensionManager::hostGetActiveDocumentPath;
+    m_hostApi.reveal_file_line = &ExtensionManager::hostRevealFileLine;
 }
 
 ExtensionManager::~ExtensionManager()
@@ -1331,6 +1332,15 @@ size_t ExtensionManager::hostGetActiveDocumentPath(void *hostContext, char *buff
     if (buffer && capacity >= required && required > 0)
         std::memcpy(buffer, path.constData(), required);
     return required;
+}
+
+int32_t ExtensionManager::hostRevealFileLine(void *hostContext, NsStringView path, uint32_t line)
+{
+    auto *owner = static_cast<LoadedExtension *>(hostContext);
+    auto *manager = owner ? owner->manager : nullptr;
+    if (!manager || !manager->m_window || line == 0
+        || !manager->hasPermission(owner, QStringLiteral("editor.read"))) return 0;
+    return manager->m_window->revealExtensionLocation(fromView(path), int(line)) ? 1 : 0;
 }
 
 int32_t ExtensionManager::hostRegisterSettingsPage(void *hostContext,

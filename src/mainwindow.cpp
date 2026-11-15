@@ -471,6 +471,21 @@ bool MainWindow::replaceExtensionDocument(const QString &text)
     editor->setFocus();
     return true;
 }
+
+bool MainWindow::revealExtensionLocation(const QString &path, int line)
+{
+    if (path.isEmpty() || line < 1) return false;
+    openFile(path);
+    auto *editor = currentEditor();
+    if (!editor) return false;
+    QTextBlock block = editor->document()->findBlockByNumber(line - 1);
+    if (!block.isValid()) return false;
+    QTextCursor cursor(block);
+    editor->setTextCursor(cursor);
+    editor->ensureCursorVisible();
+    editor->setFocus();
+    return true;
+}
 bool MainWindow::runExtensionProcess(const QString &program, const QStringList &arguments,
                                      const QString &workingDirectory)
 {
@@ -862,6 +877,10 @@ void MainWindow::applyTheme()
             QDockWidget#projectExplorerDock QWidget { background: #f6f8fa; }
             QToolButton { color: #24292f; background: transparent; border: 0; border-radius: 4px; }
             QToolButton:hover { background: #d0d7de; }
+            QToolButton[accent="true"] { background: #1a7f37; color: #ffffff; }
+            QToolButton[accent="true"]:hover { background: #2da44e; }
+            QToolButton[danger="true"] { background: #cf222e; color: #ffffff; }
+            QToolButton[danger="true"]:hover { background: #a40e26; }
             QLabel#gitAccountStatus, QLabel#gitSectionLabel { color: #57606a; font-size: 10px; font-weight: 600; }
             QToolButton#editorTabCloseButton { color: #57606a; background: transparent; border: 0; border-radius: 3px; padding: 0; font-size: 15px; font-weight: 400; }
             QToolButton#editorTabCloseButton:hover { color: #24292f; background: #d0d7de; }
@@ -907,6 +926,10 @@ void MainWindow::applyTheme()
         QToolButton { color: #c9d1d9; background: transparent; border: 0; border-radius: 4px; }
         QToolButton:hover { background: #30363d; color: #ffffff; }
         QToolButton:pressed { background: #1f6feb; }
+        QToolButton[accent="true"] { background: #238636; color: #ffffff; }
+        QToolButton[accent="true"]:hover { background: #2ea043; }
+        QToolButton[danger="true"] { background: #da3633; color: #ffffff; }
+        QToolButton[danger="true"]:hover { background: #f85149; }
         QLabel#gitAccountStatus, QLabel#gitSectionLabel { color: #8b949e; font-size: 10px; font-weight: 600; }
         QToolButton#editorTabCloseButton { color: #8b949e; background: transparent; border: 0; border-radius: 3px; padding: 0; font-size: 15px; font-weight: 400; }
         QToolButton#editorTabCloseButton:hover { color: #ffffff; background: #30363d; }

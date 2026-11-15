@@ -53,6 +53,7 @@ public:
     bool runExtensionProcess(const QString &program, const QStringList &arguments,
                              const QString &workingDirectory = {});
     bool showExtensionView(const QString &viewId);
+    bool revealExtensionLocation(const QString &path, int line);
     void setExtensionFileDecorations(const QString &extensionId,
                                      const QList<ExplorerFileDecoration> &decorations);
 

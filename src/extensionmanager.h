@@ -136,6 +136,7 @@ private:
                                              void *userData);
     static size_t hostGetActiveDocumentText(void *hostContext, char *buffer, size_t capacity);
     static size_t hostGetActiveDocumentPath(void *hostContext, char *buffer, size_t capacity);
+    static int32_t hostRevealFileLine(void *hostContext, NsStringView path, uint32_t line);
     static int32_t hostRegisterSettingsPage(void *hostContext, NsExtensionHandle extension,
                                             const NsSettingsPageSpec *page);
     static size_t hostGetExtensionSetting(void *hostContext, NsExtensionHandle extension,

@@ -45,7 +45,7 @@ jobs:
             build/extensions/bundled/native_git.json
             build/extensions/bundled/native_code_tidy.dll
             build/extensions/bundled/native_code_tidy.json
-            build/extensions/store/native_python_variable_explorer.dll
-            build/extensions/store/native_python_variable_explorer.json
+            build/extensions/store/native_python_debugger.dll
+            build/extensions/store/native_python_debugger.json
             src/extension_api.h
             src/EXTENSION_ABI.md

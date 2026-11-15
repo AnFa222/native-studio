@@ -169,6 +169,7 @@ typedef struct NsHostApi {
                                     const NsFileDecoration *decorations,
                                     size_t decoration_count);
     size_t (*get_active_document_path)(void *host_context, char *buffer, size_t capacity);
+    int32_t (*reveal_file_line)(void *host_context, NsStringView path, uint32_t line);
 } NsHostApi;
 
 typedef int32_t (*NsActivateCallback)(void *extension_context, const NsHostApi *host,

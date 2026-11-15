@@ -3,7 +3,7 @@ if(POLICY CMP0141)
     cmake_policy(SET CMP0141 NEW)
 endif()
 
-project(NativeStudio VERSION 0.22.3 LANGUAGES CXX)
+project(NativeStudio VERSION 0.23.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -68,6 +68,10 @@ set(BUNDLED_EXTENSION_BUILD_DIR "${CMAKE_BINARY_DIR}/extensions/bundled")
 set(STORE_EXTENSION_BUILD_DIR "${CMAKE_BINARY_DIR}/extensions/store")
 file(MAKE_DIRECTORY "${BUNDLED_EXTENSION_BUILD_DIR}")
 file(MAKE_DIRECTORY "${STORE_EXTENSION_BUILD_DIR}")
+file(REMOVE "${STORE_EXTENSION_BUILD_DIR}/native_python_variable_explorer.dll"
+            "${STORE_EXTENSION_BUILD_DIR}/native_python_variable_explorer.so"
+            "${STORE_EXTENSION_BUILD_DIR}/native_python_variable_explorer.dylib"
+            "${STORE_EXTENSION_BUILD_DIR}/native_python_variable_explorer.json")
 # Remove obsolete built-in artifacts when reconfiguring an existing build tree.
 file(REMOVE "${BUNDLED_EXTENSION_BUILD_DIR}/native_hello.dll"
             "${BUNDLED_EXTENSION_BUILD_DIR}/native_hello.so"
@@ -113,27 +117,27 @@ set_target_properties(native_git_extension PROPERTIES
 configure_file(extensions/git/extension.json
                "${BUNDLED_EXTENSION_BUILD_DIR}/native_git.json" COPYONLY)
 
-add_library(native_python_variable_explorer MODULE
+add_library(native_python_debugger MODULE
     extensions/python_variable_explorer/python_variable_explorer.cpp
     extensions/python_variable_explorer/variableexplorerwidget.cpp
     extensions/python_variable_explorer/variableexplorerwidget.h
     src/extension_api.h
 )
-target_include_directories(native_python_variable_explorer PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
-target_link_libraries(native_python_variable_explorer PRIVATE Qt6::Widgets)
-set_target_properties(native_python_variable_explorer PROPERTIES
+target_include_directories(native_python_debugger PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(native_python_debugger PRIVATE Qt6::Widgets)
+set_target_properties(native_python_debugger PROPERTIES
     PREFIX ""
-    OUTPUT_NAME "native_python_variable_explorer"
+    OUTPUT_NAME "native_python_debugger"
     LIBRARY_OUTPUT_DIRECTORY "${STORE_EXTENSION_BUILD_DIR}"
     RUNTIME_OUTPUT_DIRECTORY "${STORE_EXTENSION_BUILD_DIR}"
     LIBRARY_OUTPUT_DIRECTORY_RELEASE "${STORE_EXTENSION_BUILD_DIR}"
     RUNTIME_OUTPUT_DIRECTORY_RELEASE "${STORE_EXTENSION_BUILD_DIR}"
 )
 configure_file(extensions/python_variable_explorer/extension.json
-               "${STORE_EXTENSION_BUILD_DIR}/native_python_variable_explorer.json" COPYONLY)
+               "${STORE_EXTENSION_BUILD_DIR}/native_python_debugger.json" COPYONLY)
 
 foreach(extension_target IN ITEMS native_code_tidy_extension native_git_extension
-                                  native_python_variable_explorer)
+                                  native_python_debugger)
     if(MSVC)
         target_compile_options(${extension_target} PRIVATE /W4 /permissive-)
     else()
@@ -193,7 +197,7 @@ if(BUILD_TESTING)
     )
     target_link_libraries(nativeide_tests PRIVATE nativeide_core Qt6::Test)
     add_dependencies(nativeide_tests native_code_tidy_extension native_git_extension
-                     native_python_variable_explorer)
+                     native_python_debugger)
     add_test(NAME nativeide_tests COMMAND nativeide_tests)
     set_tests_properties(nativeide_tests PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"

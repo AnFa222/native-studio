@@ -138,7 +138,7 @@ private slots:
     void runActionTracksSupportedFile();
     void lineNumberGutterTracksDocument();
     void pluginExplorerHasMarketplaceControls();
-    void pythonVariableExplorerRunsIndependently();
+    void pythonDebuggerStepsAndRemoves();
     void codeTidyFormatsDocumentAndSave();
     void extensionManagerShowsManifestControls();
     void extensionStoreHasMarketplaceControls();
@@ -477,7 +477,7 @@ void EditorTests::pluginExplorerHasMarketplaceControls()
     QVERIFY(table->rowCount() >= 2);
 }
 
-void EditorTests::pythonVariableExplorerRunsIndependently()
+void EditorTests::pythonDebuggerStepsAndRemoves()
 {
     ApplicationSettingsGuard applicationSettings;
     QTemporaryDir userExtensions;
@@ -489,7 +489,8 @@ void EditorTests::pythonVariableExplorerRunsIndependently()
     const QString path = directory.filePath(QStringLiteral("variables.py"));
     QFile file(path);
     QVERIFY(file.open(QIODevice::WriteOnly));
-    file.write("answer = 42\nname = 'Native Studio'\nitems = [1, 2, 3]\n");
+    file.write("answer = 21\ndef double(value):\n    result = value * 2\n    return result\n"
+               "final = double(answer)\ndone = final + 1\n");
     file.close();
 
     MainWindow window;
@@ -514,7 +515,7 @@ void EditorTests::pythonVariableExplorerRunsIndependently()
     QString importError;
     bool restartRequired = false;
     QVERIFY2(manager->importExtension(
-        QDir(storeDirectory).filePath(QStringLiteral("native_python_variable_explorer.json")),
+        QDir(storeDirectory).filePath(QStringLiteral("native_python_debugger.json")),
         &importError, &restartRequired), qPrintable(importError));
     QVERIFY(!restartRequired);
     const auto loaded = manager->loadedExtensions();
@@ -524,32 +525,74 @@ void EditorTests::pythonVariableExplorerRunsIndependently()
     QVERIFY(!found->bundled);
     QVERIFY(found->loaded);
     QVERIFY(manager->viewIds().contains(
-        QStringLiteral("python.variableExplorer")));
+        QStringLiteral("python.debugger")));
 
-    QVERIFY(window.showExtensionView(QStringLiteral("python.variableExplorer")));
-    auto *explorer = window.findChild<QWidget *>(QStringLiteral("pythonVariableExplorer"));
-    QVERIFY(explorer != nullptr);
-    auto *run = explorer->findChild<QPushButton *>(QStringLiteral("variableExplorerRun"));
-    auto *tree = explorer->findChild<QTreeWidget *>(QStringLiteral("variableExplorerTree"));
-    auto *status = explorer->findChild<QLabel *>(QStringLiteral("variableExplorerStatus"));
-    auto *fileLabel = explorer->findChild<QLabel *>(QStringLiteral("variableExplorerFile"));
-    QVERIFY(run != nullptr);
+    QVERIFY(window.showExtensionView(QStringLiteral("python.debugger")));
+    auto *debugger = window.findChild<QWidget *>(QStringLiteral("pythonDebugger"));
+    QVERIFY(debugger != nullptr);
+    auto *start = debugger->findChild<QToolButton *>(QStringLiteral("pythonDebuggerStart"));
+    auto *continueButton = debugger->findChild<QToolButton *>(
+        QStringLiteral("pythonDebuggerContinue"));
+    auto *stepOver = debugger->findChild<QToolButton *>(QStringLiteral("pythonDebuggerStepOver"));
+    auto *stepInto = debugger->findChild<QToolButton *>(QStringLiteral("pythonDebuggerStepInto"));
+    auto *stepOut = debugger->findChild<QToolButton *>(QStringLiteral("pythonDebuggerStepOut"));
+    auto *stop = debugger->findChild<QToolButton *>(QStringLiteral("pythonDebuggerStop"));
+    auto *tree = debugger->findChild<QTreeWidget *>(QStringLiteral("pythonDebuggerVariables"));
+    auto *stack = debugger->findChild<QTreeWidget *>(QStringLiteral("pythonDebuggerStack"));
+    auto *status = debugger->findChild<QLabel *>(QStringLiteral("pythonDebuggerStatus"));
+    auto *fileLabel = debugger->findChild<QLabel *>(QStringLiteral("pythonDebuggerFile"));
+    auto *breakpointLine = debugger->findChild<QSpinBox *>(
+        QStringLiteral("pythonDebuggerBreakpointLine"));
+    auto *addBreakpoint = debugger->findChild<QToolButton *>(
+        QStringLiteral("pythonDebuggerAddBreakpoint"));
+    QVERIFY(start != nullptr);
+    QVERIFY(continueButton != nullptr);
+    QVERIFY(stepOver != nullptr);
+    QVERIFY(stepInto != nullptr);
+    QVERIFY(stepOut != nullptr);
+    QVERIFY(stop != nullptr);
     QVERIFY(tree != nullptr);
+    QVERIFY(stack != nullptr);
     QVERIFY(status != nullptr);
     QVERIFY(fileLabel != nullptr);
+    QVERIFY(breakpointLine != nullptr);
+    QVERIFY(addBreakpoint != nullptr);
     QVERIFY(fileLabel->text().contains(QStringLiteral("variables.py")));
-    run->click();
-    QTRY_VERIFY_WITH_TIMEOUT(status->text().contains(QStringLiteral("Captured")), 5000);
+    start->click();
+    QTRY_VERIFY_WITH_TIMEOUT(status->text().contains(QStringLiteral("Paused")), 5000);
+    QVERIFY(stepOver->isEnabled());
+    stepOver->click();
+    QTRY_VERIFY_WITH_TIMEOUT(status->text().contains(QStringLiteral("Paused")), 5000);
     QVERIFY(tree->findItems(QStringLiteral("answer"), Qt::MatchExactly, 0).size() == 1);
     QCOMPARE(tree->findItems(QStringLiteral("answer"), Qt::MatchExactly, 0)
+                 .first()->text(2), QStringLiteral("21"));
+    QVERIFY(stack->topLevelItemCount() >= 1);
+    stepOver->click();
+    QTRY_VERIFY_WITH_TIMEOUT(status->text().contains(QStringLiteral("line 5")), 5000);
+    stepInto->click();
+    QTRY_VERIFY_WITH_TIMEOUT(status->text().contains(QStringLiteral("line 3")), 5000);
+    QVERIFY(stack->topLevelItemCount() >= 2);
+    QVERIFY(tree->findItems(QStringLiteral("value"), Qt::MatchExactly, 0).size() == 1);
+    stepOut->click();
+    QTRY_VERIFY_WITH_TIMEOUT(status->text().contains(QStringLiteral("line 6")), 5000);
+    QCOMPARE(tree->findItems(QStringLiteral("final"), Qt::MatchExactly, 0)
                  .first()->text(2), QStringLiteral("42"));
+    stop->click();
+    QTRY_VERIFY_WITH_TIMEOUT(start->isEnabled(), 3000);
+    breakpointLine->setValue(6);
+    addBreakpoint->click();
+    start->click();
+    QTRY_VERIFY_WITH_TIMEOUT(status->text().contains(QStringLiteral("line 1")), 5000);
+    continueButton->click();
+    QTRY_VERIFY_WITH_TIMEOUT(status->text().contains(QStringLiteral("line 6")), 5000);
+    stop->click();
 
     QString removalError;
     QVERIFY2(manager->removeExtension(extensionId, &removalError), qPrintable(removalError));
     const auto remaining = manager->installedExtensions();
     QVERIFY(std::none_of(remaining.cbegin(), remaining.cend(),
         [&extensionId](const auto &extension) { return extension.id == extensionId; }));
-    QVERIFY(!manager->viewIds().contains(QStringLiteral("python.variableExplorer")));
+    QVERIFY(!manager->viewIds().contains(QStringLiteral("python.debugger")));
 }
 
 void EditorTests::codeTidyFormatsDocumentAndSave()
