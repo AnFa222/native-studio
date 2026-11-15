@@ -592,8 +592,10 @@ void MainWindow::createActions()
     searchAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+F")));
     pluginsMenu->addAction(tr("Plugin Explorer…"), this, &MainWindow::managePlugins);
     pluginsMenu->addAction(tr("Rescan Language Plugins"), this, &MainWindow::reloadLanguagePlugins);
-    m_extensionsMenu->addAction(tr("Manage Native Extensions…"),
-                                this, &MainWindow::manageExtensions);
+    auto *extensionStoreAction = m_extensionsMenu->addAction(
+        tr("Extension Store…"), this, &MainWindow::manageExtensions);
+    extensionStoreAction->setObjectName(QStringLiteral("extensionStoreAction"));
+    toolbar->insertAction(saveAction, extensionStoreAction);
     m_extensionsMenu->addSeparator();
     runMenu->addAction(m_runAction);
     viewMenu->addAction(m_projectExplorerDock->toggleViewAction());

@@ -1087,6 +1087,12 @@ void EditorTests::nativeWorkspaceFeaturesAreLazyAndAvailable()
     QVERIFY(openFolderAction->text().contains(QStringLiteral("Open Folder")));
     QVERIFY(window.findChild<QToolBar *>(QStringLiteral("fileToolbar"))
                 ->actions().contains(openFolderAction));
+    auto *extensionStoreAction = window.findChild<QAction *>(
+        QStringLiteral("extensionStoreAction"));
+    QVERIFY(extensionStoreAction != nullptr);
+    QCOMPARE(extensionStoreAction->text(), QStringLiteral("Extension Store…"));
+    QVERIFY(window.findChild<QToolBar *>(QStringLiteral("fileToolbar"))
+                ->actions().contains(extensionStoreAction));
     KeybindingsDialog keybindings(window.findChildren<QAction *>(), &window);
     auto *keybindingsTable = keybindings.findChild<QTableWidget *>(QStringLiteral("keybindingsTable"));
     QVERIFY(keybindingsTable != nullptr);
