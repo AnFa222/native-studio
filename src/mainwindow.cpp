@@ -2,6 +2,7 @@
 
 #include "codeeditor.h"
 #include "extensionmanager.h"
+#include "extensionmanagerdialog.h"
 #include "languagemanager.h"
 #include "pluginmanagerdialog.h"
 #include "projectexplorer.h"
@@ -203,6 +204,9 @@ void MainWindow::createActions()
     openProjectAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_O));
     pluginsMenu->addAction(tr("Plugin Explorer…"), this, &MainWindow::managePlugins);
     pluginsMenu->addAction(tr("Rescan Language Plugins"), this, &MainWindow::reloadLanguagePlugins);
+    m_extensionsMenu->addAction(tr("Manage Native Extensions…"),
+                                this, &MainWindow::manageExtensions);
+    m_extensionsMenu->addSeparator();
     runMenu->addAction(m_runAction);
     viewMenu->addAction(m_terminalDock->toggleViewAction());
     viewMenu->addAction(m_problemsDock->toggleViewAction());
@@ -457,6 +461,12 @@ void MainWindow::updateProblems(CodeEditor *editor)
 void MainWindow::managePlugins()
 {
     PluginManagerDialog dialog(m_languageManager, this);
+    dialog.exec();
+}
+
+void MainWindow::manageExtensions()
+{
+    ExtensionManagerDialog dialog(m_extensionManager, this);
     dialog.exec();
 }
 

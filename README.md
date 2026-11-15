@@ -12,9 +12,9 @@ Use **Plugins > Plugin Explorer** to browse and search language plugins publishe
 
 ## Native extensions
 
-General-purpose extensions use the versioned C ABI in `sdk/extension_api.h`. They are ordinary native shared libraries loaded in-process from `bin/extensions` or the per-user extensions directory. Commands and host services use direct function pointers and UTF-8 string views—there is no JSON, RPC, JavaScript runtime, or Qt requirement for extension binaries.
+General-purpose extensions use the versioned C ABI in `sdk/extension_api.h`. They are ordinary native shared libraries loaded in-process from `bin/extensions` or the per-user extensions directory. Commands and host services use direct function pointers and UTF-8 string views—there is no JSON or RPC marshalling in the call path, no JavaScript runtime, and no Qt requirement for extension binaries.
 
-The v1 host API supports activation and cleanup, command registration, active-file/project context, status messages, logging, opening files, inserting or replacing editor text, and launching processes in the integrated terminal. A compiled `native_hello` example is bundled under **Extensions > Examples**. See [docs/extension-sdk.md](docs/extension-sdk.md) for the ABI contract and a minimal CMake project.
+The v1 host API supports activation and cleanup, command registration, active-file/project context, status messages, logging, opening files, inserting or replacing editor text, and launching processes in the integrated terminal. A compiled `native_hello` example is bundled under **Extensions > Examples**. Use **Extensions > Manage Native Extensions** to import JSON manifests, enable or disable extensions, and remove user-installed binaries. See [src/EXTENSION_ABI.md](src/EXTENSION_ABI.md) for the manifest schema, ABI contract, and a minimal CMake project.
 
 ## Language intelligence
 

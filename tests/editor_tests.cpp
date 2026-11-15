@@ -1,5 +1,6 @@
 #include "codeeditor.h"
 #include "extensionmanager.h"
+#include "extensionmanagerdialog.h"
 #include "languagemanager.h"
 #include "mainwindow.h"
 #include "pluginmanagerdialog.h"
@@ -44,6 +45,7 @@ private slots:
     void lineNumberGutterTracksDocument();
     void pluginExplorerHasMarketplaceControls();
     void loadsNativeBinaryExtension();
+    void extensionManagerShowsManifestControls();
     void languagePluginsProvideCompletions();
     void languagePluginsDetectErrors();
     void pythonAnalyzerFindsSemanticProblems();
@@ -259,6 +261,15 @@ void EditorTests::loadsNativeBinaryExtension()
     QVERIFY(std::any_of(extensions.cbegin(), extensions.cend(), [](const auto &extension) {
         return extension.id == QStringLiteral("dev.nativestudio.hello");
     }));
+    const auto installed = manager->installedExtensions();
+    const auto installedHello = std::find_if(
+        installed.cbegin(), installed.cend(), [](const auto &extension) {
+            return extension.id == QStringLiteral("dev.nativestudio.hello");
+        });
+    QVERIFY(installedHello != installed.cend());
+    QCOMPARE(installedHello->abiVersion, uint32_t(NS_EXTENSION_ABI_VERSION));
+    QVERIFY(QFileInfo::exists(installedHello->manifestPath));
+    QVERIFY(installedHello->loaded);
     const QString commandId = QStringLiteral("dev.nativestudio.hello.say_hello");
     QVERIFY(manager->commandIds().contains(commandId));
     auto *action = window.findChild<QAction *>(QStringLiteral("extensionCommand.%1").arg(commandId));
@@ -274,6 +285,26 @@ void EditorTests::loadsNativeBinaryExtension()
     auto *editor = qobject_cast<CodeEditor *>(window.editorTabs()->currentWidget());
     QVERIFY(editor != nullptr);
     QCOMPARE(editor->toPlainText(), QStringLiteral("Hello from Native Hello"));
+}
+
+void EditorTests::extensionManagerShowsManifestControls()
+{
+    MainWindow window;
+    ExtensionManagerDialog dialog(window.extensionManager());
+
+    QCOMPARE(dialog.windowTitle(), QStringLiteral("Native Extension Manager"));
+    auto *search = dialog.findChild<QLineEdit *>(QStringLiteral("extensionSearch"));
+    auto *table = dialog.findChild<QTableWidget *>(QStringLiteral("extensionTable"));
+    auto *import = dialog.findChild<QPushButton *>(QStringLiteral("importExtensionManifest"));
+    auto *toggle = dialog.findChild<QPushButton *>(QStringLiteral("toggleExtension"));
+    auto *remove = dialog.findChild<QPushButton *>(QStringLiteral("removeExtension"));
+    QVERIFY(search != nullptr);
+    QVERIFY(table != nullptr);
+    QVERIFY(import != nullptr);
+    QVERIFY(toggle != nullptr);
+    QVERIFY(remove != nullptr);
+    QCOMPARE(table->columnCount(), 6);
+    QVERIFY(table->rowCount() >= 1);
 }
 
 void EditorTests::languagePluginsProvideCompletions()

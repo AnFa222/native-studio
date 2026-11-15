@@ -6,10 +6,17 @@
 #include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QKeySequence>
 #include <QLibrary>
 #include <QMenu>
+#include <QRegularExpression>
+#include <QSaveFile>
+#include <QSettings>
+#include <QSet>
 #include <QStandardPaths>
 
 #include <algorithm>
@@ -67,6 +74,139 @@ bool ExtensionManager::containsExtension(const QString &id) const
     });
 }
 
+QStringList ExtensionManager::disabledExtensionIds()
+{
+    return QSettings().value(QStringLiteral("extensions/disabled")).toStringList();
+}
+
+void ExtensionManager::setDisabledExtensionIds(const QStringList &ids)
+{
+    QSettings().setValue(QStringLiteral("extensions/disabled"), ids);
+}
+
+QString ExtensionManager::bundledExtensionDirectory()
+{
+    return QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("extensions"));
+}
+
+QString ExtensionManager::multiConfigExtensionDirectory()
+{
+    return QDir(QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("..")))
+        .filePath(QStringLiteral("extensions"));
+}
+
+QString ExtensionManager::safeInstallBase(const QString &id)
+{
+    QString result = id;
+    result.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9_-]")), QStringLiteral("_"));
+    return result.left(128);
+}
+
+bool ExtensionManager::readManifest(const QString &path, bool bundled,
+                                    NativeExtensionInfo *info, QString *error)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        if (error) *error = file.errorString();
+        return false;
+    }
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        if (error) *error = QObject::tr("Invalid JSON manifest: %1").arg(parseError.errorString());
+        return false;
+    }
+    const QJsonObject object = document.object();
+    if (object.value(QStringLiteral("manifestVersion")).toInt() != 1) {
+        if (error) *error = QObject::tr("Unsupported manifestVersion; expected 1.");
+        return false;
+    }
+    const QString id = object.value(QStringLiteral("id")).toString().trimmed();
+    static const QRegularExpression validId(QStringLiteral("^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$"));
+    if (!validId.match(id).hasMatch()) {
+        if (error) *error = QObject::tr("Extension id is missing or invalid.");
+        return false;
+    }
+    const uint32_t abiVersion = static_cast<uint32_t>(
+        object.value(QStringLiteral("abiVersion")).toInt());
+    if (abiVersion != NS_EXTENSION_ABI_VERSION) {
+        if (error) *error = QObject::tr("Extension requires ABI %1; this build supports ABI %2.")
+            .arg(abiVersion).arg(NS_EXTENSION_ABI_VERSION);
+        return false;
+    }
+
+    QString binaryName;
+    const QJsonValue binary = object.value(QStringLiteral("binary"));
+    if (binary.isString()) {
+        binaryName = binary.toString();
+    } else if (binary.isObject()) {
+#ifdef Q_OS_WIN
+        binaryName = binary.toObject().value(QStringLiteral("windows")).toString();
+#elif defined(Q_OS_MACOS)
+        binaryName = binary.toObject().value(QStringLiteral("macos")).toString();
+#else
+        binaryName = binary.toObject().value(QStringLiteral("linux")).toString();
+#endif
+    }
+    binaryName = QDir::cleanPath(QDir::fromNativeSeparators(binaryName.trimmed()));
+    if (binaryName.isEmpty() || QDir::isAbsolutePath(binaryName)
+        || binaryName == QStringLiteral("..") || binaryName.startsWith(QStringLiteral("../"))) {
+        if (error) *error = QObject::tr("Manifest binary must be a safe relative path.");
+        return false;
+    }
+    const QFileInfo manifestInfo(path);
+    const QFileInfo binaryInfo(manifestInfo.dir().filePath(binaryName));
+    if (!binaryInfo.isFile() || !QLibrary::isLibrary(binaryInfo.fileName())) {
+        if (error) *error = QObject::tr("Extension binary is missing or unsupported: %1")
+            .arg(binaryName);
+        return false;
+    }
+    const QString root = QDir::fromNativeSeparators(manifestInfo.dir().canonicalPath())
+        + QLatin1Char('/');
+    const QString canonicalBinary = QDir::fromNativeSeparators(binaryInfo.canonicalFilePath());
+    if (!canonicalBinary.startsWith(root, Qt::CaseInsensitive)) {
+        if (error) *error = QObject::tr("Extension binary escapes the manifest directory.");
+        return false;
+    }
+
+    if (info) {
+        const QStringList disabled = disabledExtensionIds();
+        info->id = id;
+        info->name = object.value(QStringLiteral("name")).toString(id).trimmed();
+        info->version = object.value(QStringLiteral("version")).toString().trimmed();
+        info->description = object.value(QStringLiteral("description")).toString().trimmed();
+        info->author = object.value(QStringLiteral("author")).toString().trimmed();
+        info->filePath = binaryInfo.absoluteFilePath();
+        info->manifestPath = manifestInfo.absoluteFilePath();
+        info->abiVersion = abiVersion;
+        info->bundled = bundled;
+        info->enabled = !disabled.contains(id, Qt::CaseInsensitive);
+        info->pendingRestart = QFileInfo::exists(info->filePath + QStringLiteral(".pending"))
+            || QFileInfo::exists(info->manifestPath + QStringLiteral(".pending"))
+            || QFileInfo::exists(QDir(userExtensionDirectory()).filePath(
+                safeInstallBase(id) + QStringLiteral(".restart")))
+            || QFileInfo::exists(manifestInfo.dir().filePath(safeInstallBase(id)
+                                                             + QStringLiteral(".remove")));
+    }
+    return true;
+}
+
+QList<NativeExtensionInfo> ExtensionManager::manifestsInDirectory(const QString &directory,
+                                                                  bool bundled) const
+{
+    QList<NativeExtensionInfo> result;
+    QDir dir(directory);
+    const auto manifests = dir.entryInfoList({QStringLiteral("*.json")}, QDir::Files | QDir::Readable,
+                                              QDir::Name | QDir::IgnoreCase);
+    for (const QFileInfo &manifest : manifests) {
+        NativeExtensionInfo info;
+        if (!readManifest(manifest.absoluteFilePath(), bundled, &info)) continue;
+        info.loaded = containsExtension(info.id);
+        result.push_back(std::move(info));
+    }
+    return result;
+}
+
 int ExtensionManager::loadExtensions(const QString &directory, bool bundled)
 {
     if (m_shuttingDown) return 0;
@@ -74,10 +214,10 @@ int ExtensionManager::loadExtensions(const QString &directory, bool bundled)
     if (!extensionDirectory.exists()) return 0;
 
     int loadedCount = 0;
-    const auto files = extensionDirectory.entryInfoList(QDir::Files | QDir::Readable,
-                                                         QDir::Name | QDir::IgnoreCase);
-    for (const QFileInfo &file : files) {
-        if (!QLibrary::isLibrary(file.fileName())) continue;
+    const auto manifests = manifestsInDirectory(directory, bundled);
+    for (const NativeExtensionInfo &manifest : manifests) {
+        if (!manifest.enabled || containsExtension(manifest.id)) continue;
+        const QFileInfo file(manifest.filePath);
         auto extension = std::make_unique<LoadedExtension>();
         extension->library = std::make_unique<QLibrary>(file.absoluteFilePath());
         if (!extension->library->load()) {
@@ -109,13 +249,16 @@ int ExtensionManager::loadExtensions(const QString &directory, bool bundled)
         }
 
         const QString id = fromView(descriptor->id).trimmed();
-        if (id.isEmpty() || containsExtension(id)) {
+        const QString descriptorVersion = fromView(descriptor->version).trimmed();
+        if (id.compare(manifest.id, Qt::CaseSensitive) != 0
+            || (!manifest.version.isEmpty() && descriptorVersion != manifest.version)) {
+            qWarning() << "Native extension descriptor does not match its manifest:" << file.fileName();
             extension->library->unload();
             continue;
         }
         extension->descriptor = descriptor;
-        extension->info = {id, fromView(descriptor->name), fromView(descriptor->version),
-                           file.absoluteFilePath(), bundled};
+        extension->info = manifest;
+        extension->info.loaded = true;
         if (extension->info.name.isEmpty()) extension->info.name = id;
 
         LoadedExtension *handle = extension.get();
@@ -148,12 +291,11 @@ int ExtensionManager::loadExtensions(const QString &directory, bool bundled)
 int ExtensionManager::loadDefaultExtensions()
 {
     QDir().mkpath(userExtensionDirectory());
+    applyPendingOperations();
     int loaded = loadExtensions(userExtensionDirectory(), false);
-    const QDir applicationDirectory(QCoreApplication::applicationDirPath());
-    const QString bundled = applicationDirectory.filePath(QStringLiteral("extensions"));
+    const QString bundled = bundledExtensionDirectory();
     loaded += loadExtensions(bundled, true);
-    const QString multiConfig = QDir(applicationDirectory.filePath(QStringLiteral("..")))
-                                    .filePath(QStringLiteral("extensions"));
+    const QString multiConfig = multiConfigExtensionDirectory();
     if (QDir::cleanPath(multiConfig) != QDir::cleanPath(bundled))
         loaded += loadExtensions(multiConfig, true);
     return loaded;
@@ -186,6 +328,198 @@ QList<NativeExtensionInfo> ExtensionManager::loadedExtensions() const
     result.reserve(static_cast<qsizetype>(m_extensions.size()));
     for (const auto &extension : m_extensions) result.push_back(extension->info);
     return result;
+}
+
+QList<NativeExtensionInfo> ExtensionManager::installedExtensions() const
+{
+    QList<NativeExtensionInfo> result;
+    QSet<QString> ids;
+    const auto appendUnique = [&result, &ids](const QList<NativeExtensionInfo> &items) {
+        for (const NativeExtensionInfo &item : items) {
+            const QString key = item.id.toLower();
+            if (ids.contains(key)) continue;
+            ids.insert(key);
+            result.push_back(item);
+        }
+    };
+    appendUnique(manifestsInDirectory(userExtensionDirectory(), false));
+    appendUnique(manifestsInDirectory(bundledExtensionDirectory(), true));
+    if (QDir::cleanPath(multiConfigExtensionDirectory())
+        != QDir::cleanPath(bundledExtensionDirectory()))
+        appendUnique(manifestsInDirectory(multiConfigExtensionDirectory(), true));
+    std::sort(result.begin(), result.end(), [](const auto &left, const auto &right) {
+        return left.name.compare(right.name, Qt::CaseInsensitive) < 0;
+    });
+    return result;
+}
+
+bool ExtensionManager::importExtension(const QString &manifestPath, QString *error,
+                                       bool *restartRequired)
+{
+    if (restartRequired) *restartRequired = false;
+    NativeExtensionInfo source;
+    if (!readManifest(manifestPath, false, &source, error)) return false;
+
+    QFile manifestFile(manifestPath);
+    if (!manifestFile.open(QIODevice::ReadOnly)) {
+        if (error) *error = manifestFile.errorString();
+        return false;
+    }
+    QJsonDocument manifestDocument = QJsonDocument::fromJson(manifestFile.readAll());
+    QJsonObject normalized = manifestDocument.object();
+    const QString base = safeInstallBase(source.id);
+    const QString extension = QFileInfo(source.filePath).suffix();
+    const QString targetBinaryName = base + QLatin1Char('.') + extension;
+    const QString targetManifestName = base + QStringLiteral(".json");
+    normalized.insert(QStringLiteral("binary"), targetBinaryName);
+
+    QDir destination(userExtensionDirectory());
+    destination.mkpath(QStringLiteral("."));
+    const QString targetBinary = destination.filePath(targetBinaryName);
+    const QString targetManifest = destination.filePath(targetManifestName);
+    const bool requiresRestart = containsExtension(source.id)
+        || QFileInfo::exists(targetBinary) || QFileInfo::exists(targetManifest);
+    const QString binaryDestination = targetBinary
+        + (requiresRestart ? QStringLiteral(".pending") : QString{});
+    const QString manifestDestination = targetManifest
+        + (requiresRestart ? QStringLiteral(".pending") : QString{});
+
+    QFile::remove(binaryDestination);
+    if (!QFile::copy(source.filePath, binaryDestination)) {
+        if (error) *error = tr("Could not copy the extension binary.");
+        return false;
+    }
+    QSaveFile savedManifest(manifestDestination);
+    if (!savedManifest.open(QIODevice::WriteOnly)
+        || savedManifest.write(QJsonDocument(normalized).toJson(QJsonDocument::Indented)) < 0
+        || !savedManifest.commit()) {
+        QFile::remove(binaryDestination);
+        if (error) *error = tr("Could not install the extension manifest.");
+        return false;
+    }
+
+    QStringList disabled = disabledExtensionIds();
+    disabled.removeIf([&source](const QString &id) {
+        return id.compare(source.id, Qt::CaseInsensitive) == 0;
+    });
+    setDisabledExtensionIds(disabled);
+
+    if (requiresRestart) {
+        QFile restartMarker(destination.filePath(base + QStringLiteral(".restart")));
+        restartMarker.open(QIODevice::WriteOnly);
+        restartMarker.close();
+        if (restartRequired) *restartRequired = true;
+        return true;
+    }
+
+    if (loadExtensions(userExtensionDirectory(), false) == 0 || !containsExtension(source.id)) {
+        QFile::remove(targetBinary);
+        QFile::remove(targetManifest);
+        if (error) *error = tr("The binary did not export a matching ABI descriptor.");
+        return false;
+    }
+    return true;
+}
+
+bool ExtensionManager::setExtensionEnabled(const QString &id, bool enabled, QString *error)
+{
+    const auto installed = installedExtensions();
+    const auto found = std::find_if(installed.cbegin(), installed.cend(), [&id](const auto &item) {
+        return item.id.compare(id, Qt::CaseInsensitive) == 0;
+    });
+    if (found == installed.cend()) {
+        if (error) *error = tr("Extension is not installed.");
+        return false;
+    }
+    QStringList disabled = disabledExtensionIds();
+    disabled.removeIf([&id](const QString &entry) {
+        return entry.compare(id, Qt::CaseInsensitive) == 0;
+    });
+    if (!enabled) disabled.push_back(found->id);
+    setDisabledExtensionIds(disabled);
+    QFile marker(QDir(userExtensionDirectory()).filePath(
+        safeInstallBase(found->id) + QStringLiteral(".restart")));
+    marker.open(QIODevice::WriteOnly);
+    marker.close();
+    return true;
+}
+
+bool ExtensionManager::removeExtension(const QString &id, QString *error)
+{
+    const auto installed = installedExtensions();
+    const auto found = std::find_if(installed.cbegin(), installed.cend(), [&id](const auto &item) {
+        return item.id.compare(id, Qt::CaseInsensitive) == 0;
+    });
+    if (found == installed.cend()) {
+        if (error) *error = tr("Extension is not installed.");
+        return false;
+    }
+    if (found->bundled) {
+        if (error) *error = tr("Bundled extensions can be disabled but not removed.");
+        return false;
+    }
+
+    const QString base = safeInstallBase(found->id);
+    QDir directory(userExtensionDirectory());
+    if (found->loaded) {
+        QJsonObject removal;
+        removal.insert(QStringLiteral("manifest"), QFileInfo(found->manifestPath).fileName());
+        removal.insert(QStringLiteral("binary"), QFileInfo(found->filePath).fileName());
+        QSaveFile marker(directory.filePath(base + QStringLiteral(".remove")));
+        if (!marker.open(QIODevice::WriteOnly)
+            || marker.write(QJsonDocument(removal).toJson(QJsonDocument::Compact)) < 0
+            || !marker.commit()) {
+            if (error) *error = tr("Could not schedule extension removal.");
+            return false;
+        }
+    } else {
+        if (!QFile::remove(found->manifestPath) || !QFile::remove(found->filePath)) {
+            if (error) *error = tr("Could not remove extension files.");
+            return false;
+        }
+    }
+    QStringList disabled = disabledExtensionIds();
+    if (!disabled.contains(found->id, Qt::CaseInsensitive)) disabled.push_back(found->id);
+    setDisabledExtensionIds(disabled);
+    return true;
+}
+
+void ExtensionManager::applyPendingOperations()
+{
+    QDir directory(userExtensionDirectory());
+    directory.mkpath(QStringLiteral("."));
+    const auto safeLeaf = [](const QString &name) {
+        return !name.isEmpty() && QFileInfo(name).fileName() == name
+            && name != QStringLiteral(".") && name != QStringLiteral("..");
+    };
+    const auto removalMarkers = directory.entryInfoList({QStringLiteral("*.remove")}, QDir::Files);
+    for (const QFileInfo &markerInfo : removalMarkers) {
+        QFile marker(markerInfo.absoluteFilePath());
+        if (marker.open(QIODevice::ReadOnly)) {
+            const QJsonObject removal = QJsonDocument::fromJson(marker.readAll()).object();
+            for (const QString &key : {QStringLiteral("manifest"), QStringLiteral("binary")}) {
+                const QString name = removal.value(key).toString();
+                if (safeLeaf(name)) {
+                    QFile::remove(directory.filePath(name));
+                    QFile::remove(directory.filePath(name + QStringLiteral(".pending")));
+                }
+            }
+        }
+        QFile::remove(markerInfo.absoluteFilePath());
+    }
+
+    const auto pendingFiles = directory.entryInfoList({QStringLiteral("*.pending")}, QDir::Files,
+                                                       QDir::Name);
+    for (const QFileInfo &pending : pendingFiles) {
+        QString targetName = pending.fileName();
+        targetName.chop(QStringLiteral(".pending").size());
+        if (!safeLeaf(targetName)) continue;
+        const QString target = directory.filePath(targetName);
+        QFile::remove(target);
+        QFile::rename(pending.absoluteFilePath(), target);
+    }
+    for (const QFileInfo &marker : directory.entryInfoList({QStringLiteral("*.restart")}, QDir::Files))
+        QFile::remove(marker.absoluteFilePath());
 }
 
 QStringList ExtensionManager::commandIds() const

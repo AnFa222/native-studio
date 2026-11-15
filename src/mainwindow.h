@@ -53,6 +53,7 @@ private slots:
     void closeTab(int index);
     void reloadLanguagePlugins();
     void managePlugins();
+    void manageExtensions();
     void runCurrentFile();
 
 private:

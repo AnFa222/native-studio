@@ -3,7 +3,7 @@ if(POLICY CMP0141)
     cmake_policy(SET CMP0141 NEW)
 endif()
 
-project(NativeStudio VERSION 0.7.0 LANGUAGES CXX)
+project(NativeStudio VERSION 0.8.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -20,6 +20,8 @@ add_library(nativeide_core STATIC
     src/extension_api.h
     src/extensionmanager.cpp
     src/extensionmanager.h
+    src/extensionmanagerdialog.cpp
+    src/extensionmanagerdialog.h
     src/languagemanager.cpp
     src/languagemanager.h
     src/languageplugin.h
@@ -65,6 +67,9 @@ set_target_properties(native_hello_extension PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/extensions"
     RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/extensions"
 )
+file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/extensions")
+configure_file(extensions/hello/extension.json
+               "${CMAKE_BINARY_DIR}/extensions/native_hello.json" COPYONLY)
 if(MSVC)
     target_compile_options(native_hello_extension PRIVATE /W4 /permissive-)
 else()
@@ -145,4 +150,6 @@ install(TARGETS native_hello_extension
     LIBRARY DESTINATION bin/extensions
     RUNTIME DESTINATION bin/extensions
 )
-install(FILES src/languageplugin.h src/extension_api.h docs/extension-sdk.md DESTINATION sdk)
+install(FILES extensions/hello/extension.json
+        DESTINATION bin/extensions RENAME native_hello.json)
+install(FILES src/languageplugin.h src/extension_api.h src/EXTENSION_ABI.md DESTINATION sdk)

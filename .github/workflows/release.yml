@@ -42,4 +42,6 @@ jobs:
             build/plugins/languages/language_cpp.dll
             build/plugins/languages/language_python.dll
             build/extensions/native_hello.dll
+            build/extensions/native_hello.json
             src/extension_api.h
+            src/EXTENSION_ABI.md
