@@ -476,8 +476,12 @@ void EditorTests::pythonVariableExplorerRunsIndependently()
         [&extensionId](const auto &extension) {
             return extension.id == extensionId && extension.bundled;
         }));
-    const QString storeDirectory = QDir(QCoreApplication::applicationDirPath())
+    QString storeDirectory = QDir(QCoreApplication::applicationDirPath())
         .filePath(QStringLiteral("extensions/store"));
+    if (!QDir(storeDirectory).exists()) {
+        storeDirectory = QDir(QDir(QCoreApplication::applicationDirPath())
+            .filePath(QStringLiteral(".."))).filePath(QStringLiteral("extensions/store"));
+    }
     const auto loadedBefore = manager->loadedExtensions();
     if (!std::any_of(loadedBefore.cbegin(), loadedBefore.cend(),
         [&extensionId](const auto &extension) { return extension.id == extensionId; }))
