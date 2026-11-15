@@ -7,7 +7,6 @@
 #include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QKeySequence>
-#include <QLabel>
 #include <QPlainTextEdit>
 #include <QProcess>
 #include <QScrollBar>
@@ -35,13 +34,10 @@ TerminalWidget::TerminalWidget(QWidget *parent)
 
     auto *header = new QHBoxLayout;
     header->setContentsMargins(8, 4, 6, 4);
-    auto *title = new QLabel(tr("TERMINAL"), this);
-    title->setObjectName(QStringLiteral("terminalHeader"));
     m_terminateButton->setObjectName(QStringLiteral("terminateTerminalButton"));
     m_terminateButton->setText(tr("■ Terminate"));
     m_terminateButton->setToolTip(tr("Terminate the running program or shell"));
     m_terminateButton->setAutoRaise(true);
-    header->addWidget(title);
     header->addStretch();
     header->addWidget(m_terminateButton);
 

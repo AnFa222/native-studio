@@ -292,6 +292,7 @@ void EditorTests::terminalRunsProgram()
     MainWindow window;
     window.loadServicesNow();
     QVERIFY(window.terminal()->findChild<QLineEdit *>(QStringLiteral("terminalInput")) == nullptr);
+    QVERIFY(window.terminal()->findChild<QWidget *>(QStringLiteral("terminalHeader")) == nullptr);
     auto *terminalView = window.terminal()->findChild<QPlainTextEdit *>(
         QStringLiteral("terminalOutput"));
     auto *terminate = window.terminal()->findChild<QToolButton *>(
