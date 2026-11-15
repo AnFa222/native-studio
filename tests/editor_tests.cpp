@@ -136,6 +136,7 @@ private slots:
     void gitHubSignInUsesCredentialManager();
     void findAndReplaceCurrentDocument();
     void autoSaveWritesNamedFiles();
+    void restoresExtensionDockLayoutAfterDeferredLoad();
 };
 
 void EditorTests::startsWithOneUntitledEditor()
@@ -1258,6 +1259,49 @@ void EditorTests::autoSaveWritesNamedFiles()
     QFile saved(path);
     QVERIFY(saved.open(QIODevice::ReadOnly));
     QCOMPARE(QString::fromUtf8(saved.readAll()).trimmed(), QStringLiteral("after"));
+}
+
+void EditorTests::restoresExtensionDockLayoutAfterDeferredLoad()
+{
+    ApplicationSettingsGuard applicationSettings;
+    QSettings().clear();
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+
+    {
+        MainWindow original;
+        original.show();
+        original.openProject(directory.path());
+        original.loadServicesNow();
+        QVERIFY(original.showExtensionView(QStringLiteral("git.sourceControl")));
+        auto *gitDock = original.findChild<QDockWidget *>(QStringLiteral("gitDock"));
+        auto *outlineDock = original.findChild<QDockWidget *>(QStringLiteral("outlineDock"));
+        QVERIFY(gitDock != nullptr);
+        QVERIFY(outlineDock != nullptr);
+        outlineDock->show();
+        gitDock->show();
+        original.addDockWidget(Qt::RightDockWidgetArea, gitDock);
+        QCoreApplication::processEvents();
+        original.tabifyDockWidget(outlineDock, gitDock);
+        gitDock->raise();
+        QCoreApplication::processEvents();
+        QVERIFY(original.tabifiedDockWidgets(outlineDock).contains(gitDock));
+        QVERIFY(original.close());
+    }
+
+    MainWindow restored;
+    QVERIFY(restored.restoreWindowLayout());
+    QVERIFY(restored.findChild<QDockWidget *>(QStringLiteral("gitDock")) == nullptr);
+    restored.loadServicesNow();
+    auto *gitDock = restored.findChild<QDockWidget *>(QStringLiteral("gitDock"));
+    auto *outlineDock = restored.findChild<QDockWidget *>(QStringLiteral("outlineDock"));
+    QVERIFY(gitDock != nullptr);
+    QVERIFY(outlineDock != nullptr);
+    QCOMPARE(restored.dockWidgetArea(gitDock), Qt::RightDockWidgetArea);
+    QVERIFY(restored.tabifiedDockWidgets(outlineDock).contains(gitDock));
+    QCOMPARE(gitDock->property("extensionViewId").toString(),
+             QStringLiteral("git.sourceControl"));
+    QSettings().clear();
 }
 
 QTEST_MAIN(EditorTests)

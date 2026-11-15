@@ -118,6 +118,8 @@ private:
     void rebuildLanguageStatusWidgets();
     void updateLanguageStatusWidgets();
     void updateStartupStatus();
+    void restoreSavedExtensionViews();
+    QDockWidget *ensureGitDock();
     void updateProblems(CodeEditor *editor);
     void updateOutline(CodeEditor *editor);
     void saveSession();
@@ -173,4 +175,6 @@ private:
     int m_sessionSecondaryIndex = -1;
     int m_sessionActiveGroup = 0;
     QByteArray m_sessionSplitterState;
+    QByteArray m_savedWindowState;
+    bool m_windowLayoutRestored = false;
 };

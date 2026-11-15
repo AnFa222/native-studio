@@ -282,6 +282,7 @@ MainWindow::MainWindow(QWidget *parent)
     });
     connect(m_extensionManager, &ExtensionManager::loadingFinished, this, [this](int) {
         m_extensionLoadingDone = true;
+        restoreSavedExtensionViews();
         updateStartupStatus();
     });
     statusBar()->showMessage(tr("Ready — loading language support and extensions…"));
@@ -305,7 +306,8 @@ bool MainWindow::restoreWindowLayout()
     QSettings settings;
     if (!settings.contains(QStringLiteral("window/geometry"))) return false;
     const bool restored = restoreGeometry(settings.value(QStringLiteral("window/geometry")).toByteArray());
-    restoreState(settings.value(QStringLiteral("window/state")).toByteArray());
+    m_savedWindowState = settings.value(QStringLiteral("window/state")).toByteArray();
+    m_windowLayoutRestored = restoreState(m_savedWindowState);
     return restored;
 }
 
@@ -327,7 +329,25 @@ void MainWindow::loadServicesNow()
     m_extensionManager->loadDefaultExtensions();
     m_languageLoadingDone = true;
     m_extensionLoadingDone = true;
+    restoreSavedExtensionViews();
     updateStartupStatus();
+}
+
+void MainWindow::restoreSavedExtensionViews()
+{
+    if (!m_extensionLoadingDone || !m_windowLayoutRestored) return;
+    const QStringList visibleViews = QSettings().value(
+        QStringLiteral("window/visibleExtensionViews")).toStringList();
+    QList<QDockWidget *> restoredDocks;
+    for (const QString &viewId : visibleViews) {
+        if (viewId == QStringLiteral("git.sourceControl")) {
+            QDockWidget *dock = ensureGitDock();
+            if (!m_projectDirectory.isEmpty()) m_gitWidget->setRepositoryPath(m_projectDirectory);
+            restoredDocks.push_back(dock);
+        }
+    }
+    if (!restoredDocks.isEmpty()) restoreState(m_savedWindowState);
+    for (QDockWidget *dock : restoredDocks) dock->show();
 }
 
 void MainWindow::updateStartupStatus()
@@ -1258,15 +1278,16 @@ void MainWindow::applyStoredKeybindings()
     }
 }
 
-void MainWindow::showGit()
+QDockWidget *MainWindow::ensureGitDock()
 {
-    if (m_projectDirectory.isEmpty()) { chooseProject(); if (m_projectDirectory.isEmpty()) return; }
     if (!m_gitDock) {
         m_gitWidget = new GitWidget(this);
         m_gitDock = new QDockWidget(tr("SOURCE CONTROL"), this);
         m_gitDock->setObjectName(QStringLiteral("gitDock"));
+        m_gitDock->setProperty("extensionViewId", QStringLiteral("git.sourceControl"));
         m_gitDock->setWidget(m_gitWidget);
-        addDockWidget(Qt::LeftDockWidgetArea, m_gitDock);
+        if (!m_windowLayoutRestored || !restoreDockWidget(m_gitDock))
+            addDockWidget(Qt::LeftDockWidgetArea, m_gitDock);
         connect(m_gitWidget, &GitWidget::fileActivated, this, &MainWindow::openFile);
         connect(m_gitWidget, &GitWidget::runInTerminalRequested, this,
                 [this](const QString &program, const QStringList &arguments,
@@ -1276,6 +1297,13 @@ void MainWindow::showGit()
             m_terminal->executeProgram(program, arguments, workingDirectory);
         });
     }
+    return m_gitDock;
+}
+
+void MainWindow::showGit()
+{
+    if (m_projectDirectory.isEmpty()) { chooseProject(); if (m_projectDirectory.isEmpty()) return; }
+    ensureGitDock();
     m_gitWidget->setRepositoryPath(m_projectDirectory);
     m_gitDock->show();
     m_gitDock->raise();
@@ -1558,8 +1586,14 @@ void MainWindow::closeEvent(QCloseEvent *event)
 {
     saveSession();
     QSettings settings;
+    QStringList visibleExtensionViews;
+    for (QDockWidget *dock : findChildren<QDockWidget *>()) {
+        const QString viewId = dock->property("extensionViewId").toString();
+        if (!viewId.isEmpty() && dock->isVisible()) visibleExtensionViews.push_back(viewId);
+    }
     settings.setValue(QStringLiteral("window/geometry"), saveGeometry());
     settings.setValue(QStringLiteral("window/state"), saveState());
+    settings.setValue(QStringLiteral("window/visibleExtensionViews"), visibleExtensionViews);
     event->accept();
 }
 
