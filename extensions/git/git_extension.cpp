@@ -164,7 +164,7 @@ const NsExtensionDescriptor descriptor{
     NS_EXTENSION_ABI_VERSION,
     view("dev.nativestudio.git"),
     view("Git"),
-    view("1.3.0"),
+    view("1.3.1"),
     nullptr,
     &activate,
     &deactivate

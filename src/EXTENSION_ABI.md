@@ -50,6 +50,7 @@ Every extension ships a JSON manifest beside its binary:
 - `process.execute`: launch programs in the integrated terminal.
 - `settings`: register a settings page and read its values.
 - `ui.views`: register and open lazy native dock views.
+- `ui.fileDecorations`: color and annotate project files with extension-owned status decorations.
 
 Permissions authorize host API calls only. Native shared libraries execute in-process, so install binaries only from publishers you trust.
 
@@ -136,6 +137,7 @@ Extensions shipped with Native Studio are installed under `bin/extensions/bundle
 - `get_extension_setting`: copy one setting's current UTF-8 value into a caller-owned buffer; call with a null buffer first to query its byte size. Values are scoped automatically to the calling extension.
 - `show_view`: open a registered view by stable identifier. Views remain lazy and are created only when requested.
 - `register_view`: register a persistent native Qt dock view, including its stable ID, title, dock object name, default location, lazy widget factory, and optional project-change callback.
+- `set_file_decorations`: atomically replace an extension's Explorer decorations with modified, added, deleted, untracked, or conflict states. Passing an empty array clears them.
 
 Command callbacks receive the active file path, project root, and document-modified state without an additional host query.
 

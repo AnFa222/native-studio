@@ -3,6 +3,8 @@
 #include "extension_api.h"
 
 #include <QWidget>
+#include <QList>
+#include <QPair>
 
 #include <functional>
 
@@ -49,6 +51,7 @@ private slots:
 private:
     void runGit(const QStringList &arguments, const std::function<void(const QString &)> &finished);
     void refreshGitHubStatus();
+    void publishDecorations(const QList<QPair<QString, uint32_t>> &decorations);
     void runInTerminal(const QString &program, const QStringList &arguments,
                        const QString &workingDirectory);
     [[nodiscard]] QString configuredGit() const;
@@ -61,6 +64,7 @@ private:
     QLabel *m_githubAccount = nullptr;
     QTreeWidget *m_files = nullptr;
     QPlainTextEdit *m_diff = nullptr;
+    QLabel *m_diffLabel = nullptr;
     QLineEdit *m_message = nullptr;
     QToolButton *m_commit = nullptr;
 };

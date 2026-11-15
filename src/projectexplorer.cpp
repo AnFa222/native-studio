@@ -1,6 +1,9 @@
 #include "projectexplorer.h"
+#include "extension_api.h"
 
 #include <QAction>
+#include <QApplication>
+#include <QBrush>
 #include <QDir>
 #include <QDragEnterEvent>
 #include <QDropEvent>
@@ -8,6 +11,7 @@
 #include <QFileInfo>
 #include <QFileSystemModel>
 #include <QHBoxLayout>
+#include <QHash>
 #include <QInputDialog>
 #include <QItemSelectionModel>
 #include <QLabel>
@@ -22,6 +26,72 @@
 #include <QToolButton>
 #include <QTreeView>
 #include <QVBoxLayout>
+
+class DecoratedFileSystemModel final : public QFileSystemModel
+{
+public:
+    void setDecorations(const QString &sourceId,
+                        const QList<ExplorerFileDecoration> &decorations)
+    {
+        QHash<QString, ExplorerFileDecoration> source;
+        for (const auto &decoration : decorations)
+            source.insert(key(decoration.path), decoration);
+        if (source.isEmpty()) m_sources.remove(sourceId);
+        else m_sources.insert(sourceId, std::move(source));
+        emit layoutChanged();
+    }
+
+    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override
+    {
+        const QVariant base = QFileSystemModel::data(index, role);
+        if (!index.isValid() || index.column() != 0) return base;
+        const ExplorerFileDecoration *decoration = decorationFor(filePath(index));
+        if (!decoration) return base;
+        if (role == Qt::ForegroundRole) {
+            const bool dark = QApplication::palette().color(QPalette::Base).lightness() < 128;
+            QColor color;
+            if (decoration->kind == NS_FILE_DECORATION_MODIFIED)
+                color = QColor(dark ? QStringLiteral("#e2c08d") : QStringLiteral("#9a6700"));
+            else if (decoration->kind == NS_FILE_DECORATION_DELETED
+                     || decoration->kind == NS_FILE_DECORATION_CONFLICT)
+                color = QColor(dark ? QStringLiteral("#f85149") : QStringLiteral("#cf222e"));
+            else
+                color = QColor(dark ? QStringLiteral("#7ee787") : QStringLiteral("#1a7f37"));
+            return QBrush(color);
+        }
+        if (role == Qt::FontRole) {
+            QFont font = QApplication::font();
+            font.setWeight(QFont::DemiBold);
+            return font;
+        }
+        if (role == Qt::ToolTipRole)
+            return decoration->label.isEmpty() ? base
+                : QStringLiteral("%1 — %2").arg(filePath(index), decoration->label);
+        return base;
+    }
+
+private:
+    static QString key(const QString &path)
+    {
+        QString normalized = QDir::cleanPath(QFileInfo(path).absoluteFilePath());
+#ifdef Q_OS_WIN
+        normalized = normalized.toLower();
+#endif
+        return normalized;
+    }
+
+    const ExplorerFileDecoration *decorationFor(const QString &path) const
+    {
+        const QString normalized = key(path);
+        for (auto iterator = m_sources.cbegin(); iterator != m_sources.cend(); ++iterator) {
+            const auto found = iterator.value().constFind(normalized);
+            if (found != iterator.value().cend()) return &found.value();
+        }
+        return nullptr;
+    }
+
+    QHash<QString, QHash<QString, ExplorerFileDecoration>> m_sources;
+};
 
 namespace {
 class ExplorerTreeStyle final : public QProxyStyle
@@ -148,7 +218,8 @@ ProjectExplorer::ProjectExplorer(QWidget *parent)
 void ProjectExplorer::ensureModel()
 {
     if (m_model) return;
-    m_model = new QFileSystemModel(this);
+    m_model = new DecoratedFileSystemModel;
+    m_model->setParent(this);
     m_model->setFilter(QDir::AllEntries | QDir::AllDirs | QDir::NoDotAndDotDot | QDir::Hidden);
     m_model->setReadOnly(false);
     m_tree->setModel(m_model);
@@ -179,6 +250,24 @@ void ProjectExplorer::setRootPath(const QString &directory)
 QString ProjectExplorer::rootPath() const { return m_rootPath; }
 QTreeView *ProjectExplorer::treeView() const { return m_tree; }
 QFileSystemModel *ProjectExplorer::model() const { return m_model; }
+
+void ProjectExplorer::setFileDecorations(
+    const QString &sourceId, const QList<ExplorerFileDecoration> &decorations)
+{
+    ensureModel();
+    QList<ExplorerFileDecoration> absolute;
+    absolute.reserve(decorations.size());
+    for (ExplorerFileDecoration decoration : decorations) {
+        const QString candidate = QFileInfo(decoration.path).isAbsolute()
+            ? decoration.path : QDir(m_rootPath).filePath(decoration.path);
+        const QString relative = QDir(m_rootPath).relativeFilePath(candidate);
+        if (m_rootPath.isEmpty() || relative == QStringLiteral("..")
+            || relative.startsWith(QStringLiteral("../"))) continue;
+        decoration.path = QFileInfo(candidate).absoluteFilePath();
+        absolute.push_back(std::move(decoration));
+    }
+    m_model->setDecorations(sourceId, absolute);
+}
 
 bool ProjectExplorer::eventFilter(QObject *watched, QEvent *event)
 {

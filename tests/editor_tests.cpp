@@ -1333,7 +1333,7 @@ void EditorTests::gitChangesViewGroupsRepositoryState()
         QTreeWidgetItem *group = changes->topLevelItem(row);
         groups.push_back(group->text(0));
         for (int child = 0; child < group->childCount(); ++child)
-            files.push_back(group->child(child)->text(1));
+            files.push_back(group->child(child)->text(0));
     }
     QVERIFY(std::any_of(groups.cbegin(), groups.cend(), [](const QString &group) {
         return group.startsWith(QStringLiteral("STAGED CHANGES"));
@@ -1347,6 +1347,12 @@ void EditorTests::gitChangesViewGroupsRepositoryState()
     QVERIFY(files.contains(QStringLiteral("staged.py")));
     QVERIFY(files.contains(QStringLiteral("tracked.cpp")));
     QVERIFY(files.contains(QStringLiteral("untracked.txt")));
+    const QModelIndex trackedIndex = window.projectExplorer()->model()->index(
+        directory.filePath(QStringLiteral("tracked.cpp")));
+    QVERIFY(trackedIndex.isValid());
+    QVERIFY(trackedIndex.data(Qt::ForegroundRole).isValid());
+    QVERIFY(trackedIndex.data(Qt::ToolTipRole).toString().contains(
+        QStringLiteral("Modified"), Qt::CaseInsensitive));
 }
 
 QTEST_MAIN(EditorTests)

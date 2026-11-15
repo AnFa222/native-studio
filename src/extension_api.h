@@ -114,6 +114,21 @@ typedef struct NsViewSpec {
     void *user_data;
 } NsViewSpec;
 
+typedef enum NsFileDecorationKind {
+    NS_FILE_DECORATION_MODIFIED = 1,
+    NS_FILE_DECORATION_ADDED = 2,
+    NS_FILE_DECORATION_DELETED = 3,
+    NS_FILE_DECORATION_UNTRACKED = 4,
+    NS_FILE_DECORATION_CONFLICT = 5
+} NsFileDecorationKind;
+
+typedef struct NsFileDecoration {
+    uint32_t struct_size;
+    NsStringView path;
+    NsStringView label;
+    uint32_t kind;
+} NsFileDecoration;
+
 typedef struct NsCommandSpec {
     uint32_t struct_size;
     NsStringView id;
@@ -150,6 +165,9 @@ typedef struct NsHostApi {
     int32_t (*show_view)(void *host_context, NsStringView view_id);
     int32_t (*register_view)(void *host_context, NsExtensionHandle extension,
                              const NsViewSpec *view);
+    int32_t (*set_file_decorations)(void *host_context, NsExtensionHandle extension,
+                                    const NsFileDecoration *decorations,
+                                    size_t decoration_count);
 } NsHostApi;
 
 typedef int32_t (*NsActivateCallback)(void *extension_context, const NsHostApi *host,

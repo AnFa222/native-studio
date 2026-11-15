@@ -439,6 +439,12 @@ bool MainWindow::showExtensionView(const QString &viewId)
     return true;
 }
 
+void MainWindow::setExtensionFileDecorations(
+    const QString &extensionId, const QList<ExplorerFileDecoration> &decorations)
+{
+    m_projectExplorer->setFileDecorations(extensionId, decorations);
+}
+
 void MainWindow::createActions()
 {
     auto *fileMenu = menuBar()->addMenu(tr("&File"));

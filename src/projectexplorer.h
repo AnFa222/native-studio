@@ -1,8 +1,19 @@
 #pragma once
 
 #include <QWidget>
+#include <QList>
+
+#include <cstdint>
+
+struct ExplorerFileDecoration
+{
+    QString path;
+    QString label;
+    uint32_t kind = 0;
+};
 
 class QFileSystemModel;
+class DecoratedFileSystemModel;
 class QEvent;
 class QLabel;
 class QLineEdit;
@@ -21,6 +32,8 @@ public:
     [[nodiscard]] QString rootPath() const;
     [[nodiscard]] QTreeView *treeView() const;
     [[nodiscard]] QFileSystemModel *model() const;
+    void setFileDecorations(const QString &sourceId,
+                            const QList<ExplorerFileDecoration> &decorations);
 
 signals:
     void fileActivated(const QString &path);
@@ -46,7 +59,7 @@ private:
     void createEntry(bool directory);
     void ensureModel();
 
-    QFileSystemModel *m_model = nullptr;
+    DecoratedFileSystemModel *m_model = nullptr;
     QTreeView *m_tree = nullptr;
     QLabel *m_workspaceLabel = nullptr;
     QLabel *m_breadcrumb = nullptr;

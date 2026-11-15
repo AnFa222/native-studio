@@ -1,6 +1,7 @@
 #include "extensionmanager.h"
 
 #include "mainwindow.h"
+#include "projectexplorer.h"
 
 #include <QAction>
 #include <QCheckBox>
@@ -113,6 +114,7 @@ ExtensionManager::ExtensionManager(MainWindow *window, QMenu *extensionsMenu, QO
     m_hostApi.get_extension_setting = &ExtensionManager::hostGetExtensionSetting;
     m_hostApi.show_view = &ExtensionManager::hostShowView;
     m_hostApi.register_view = &ExtensionManager::hostRegisterView;
+    m_hostApi.set_file_decorations = &ExtensionManager::hostSetFileDecorations;
 }
 
 ExtensionManager::~ExtensionManager()
@@ -193,7 +195,8 @@ bool ExtensionManager::readManifest(const QString &path, bool bundled,
         QStringLiteral("ui.commands"), QStringLiteral("editor.read"),
         QStringLiteral("editor.write"), QStringLiteral("editor.events"),
         QStringLiteral("filesystem.read"), QStringLiteral("process.execute"),
-        QStringLiteral("settings"), QStringLiteral("ui.views")
+        QStringLiteral("settings"), QStringLiteral("ui.views"),
+        QStringLiteral("ui.filedecorations")
     };
     const QJsonValue permissionValue = object.value(QStringLiteral("permissions"));
     if (!permissionValue.isUndefined() && !permissionValue.isArray()) {
@@ -1128,6 +1131,7 @@ void ExtensionManager::removeSettingsPages(LoadedExtension *owner)
 
 void ExtensionManager::removeViews(LoadedExtension *owner)
 {
+    if (owner && m_window) m_window->setExtensionFileDecorations(owner->info.id, {});
     const auto firstRemoved = std::remove_if(m_views.begin(), m_views.end(),
         [owner](const auto &view) {
             if (view->owner != owner) return false;
@@ -1304,4 +1308,30 @@ int32_t ExtensionManager::hostRegisterView(void *hostContext, NsExtensionHandle 
     const bool knownOwner = std::any_of(manager->m_extensions.cbegin(), manager->m_extensions.cend(),
         [owner](const auto &candidate) { return candidate.get() == owner; });
     return knownOwner && manager->registerView(owner, view) ? 1 : 0;
+}
+
+int32_t ExtensionManager::hostSetFileDecorations(
+    void *hostContext, NsExtensionHandle extension,
+    const NsFileDecoration *decorations, size_t decorationCount)
+{
+    auto *contextOwner = static_cast<LoadedExtension *>(hostContext);
+    auto *manager = contextOwner ? contextOwner->manager : nullptr;
+    auto *owner = static_cast<LoadedExtension *>(extension);
+    if (!manager || !manager->m_window || owner != contextOwner
+        || decorationCount > 100000 || (decorationCount > 0 && !decorations)
+        || !manager->hasPermission(owner, QStringLiteral("ui.fileDecorations"))) return 0;
+    QList<ExplorerFileDecoration> converted;
+    converted.reserve(static_cast<qsizetype>(decorationCount));
+    for (size_t index = 0; index < decorationCount; ++index) {
+        const NsFileDecoration &source = decorations[index];
+        const size_t requiredSize = offsetof(NsFileDecoration, kind) + sizeof(source.kind);
+        if (source.struct_size < requiredSize
+            || source.kind < NS_FILE_DECORATION_MODIFIED
+            || source.kind > NS_FILE_DECORATION_CONFLICT) return 0;
+        const QString path = fromView(source.path).trimmed();
+        if (path.isEmpty()) return 0;
+        converted.push_back({path, fromView(source.label).trimmed(), source.kind});
+    }
+    manager->m_window->setExtensionFileDecorations(owner->info.id, converted);
+    return 1;
 }

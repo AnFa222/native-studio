@@ -1,6 +1,7 @@
 #include "gitwidget.h"
 
 #include <QAction>
+#include <QBrush>
 #include <QDir>
 #include <QDesktopServices>
 #include <QFileDialog>
@@ -8,6 +9,7 @@
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QHash>
 #include <QLabel>
 #include <QInputDialog>
 #include <QLineEdit>
@@ -18,11 +20,76 @@
 #include <QPaintEvent>
 #include <QPlainTextEdit>
 #include <QProcess>
+#include <QSyntaxHighlighter>
+#include <QTextCharFormat>
+#include <QFontDatabase>
 #include <QToolButton>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
 namespace {
+QString statusText(QChar status, bool untracked = false)
+{
+    if (untracked) return QObject::tr("Untracked");
+    if (status == QLatin1Char('M')) return QObject::tr("Modified");
+    if (status == QLatin1Char('A')) return QObject::tr("Added");
+    if (status == QLatin1Char('D')) return QObject::tr("Deleted");
+    if (status == QLatin1Char('R')) return QObject::tr("Renamed");
+    if (status == QLatin1Char('C')) return QObject::tr("Copied");
+    if (status == QLatin1Char('U')) return QObject::tr("Conflict");
+    return QObject::tr("Changed");
+}
+
+uint32_t decorationKind(QChar status, bool untracked = false)
+{
+    if (untracked) return NS_FILE_DECORATION_UNTRACKED;
+    if (status == QLatin1Char('A') || status == QLatin1Char('C'))
+        return NS_FILE_DECORATION_ADDED;
+    if (status == QLatin1Char('D')) return NS_FILE_DECORATION_DELETED;
+    if (status == QLatin1Char('U')) return NS_FILE_DECORATION_CONFLICT;
+    return NS_FILE_DECORATION_MODIFIED;
+}
+
+QColor statusColor(uint32_t kind)
+{
+    if (kind == NS_FILE_DECORATION_DELETED || kind == NS_FILE_DECORATION_CONFLICT)
+        return QColor(QStringLiteral("#f85149"));
+    if (kind == NS_FILE_DECORATION_MODIFIED) return QColor(QStringLiteral("#e2c08d"));
+    return QColor(QStringLiteral("#7ee787"));
+}
+
+class DiffHighlighter final : public QSyntaxHighlighter
+{
+public:
+    explicit DiffHighlighter(QTextDocument *document) : QSyntaxHighlighter(document) {}
+
+protected:
+    void highlightBlock(const QString &text) override
+    {
+        QTextCharFormat format;
+        if (text.startsWith(QStringLiteral("@@"))) {
+            format.setForeground(QColor(QStringLiteral("#79c0ff")));
+            format.setBackground(QColor(QStringLiteral("#102a43")));
+        } else if (text.startsWith(QLatin1Char('+'))
+                   && !text.startsWith(QStringLiteral("+++"))) {
+            format.setForeground(QColor(QStringLiteral("#aff5b4")));
+            format.setBackground(QColor(QStringLiteral("#12261e")));
+        } else if (text.startsWith(QLatin1Char('-'))
+                   && !text.startsWith(QStringLiteral("---"))) {
+            format.setForeground(QColor(QStringLiteral("#ffdcd7")));
+            format.setBackground(QColor(QStringLiteral("#2d1517")));
+        } else if (text.startsWith(QStringLiteral("diff "))
+                   || text.startsWith(QStringLiteral("index "))
+                   || text.startsWith(QStringLiteral("---"))
+                   || text.startsWith(QStringLiteral("+++"))) {
+            format.setForeground(QColor(QStringLiteral("#8b949e")));
+        } else {
+            return;
+        }
+        setFormat(0, text.size(), format);
+    }
+};
+
 enum class GitIcon {
     Refresh, Pull, Push, Branch, Stage, Unstage, Restore, StageAll, UnstageAll, Commit, More
 };
@@ -136,6 +203,7 @@ GitWidget::GitWidget(const NsHostApi *hostApi, NsExtensionHandle extension, QWid
     , m_branch(new QLabel(tr("No repository"), this))
     , m_githubAccount(new QLabel(tr("GitHub: Not signed in"), this))
     , m_files(new QTreeWidget(this)), m_diff(new QPlainTextEdit(this))
+    , m_diffLabel(new QLabel(tr("DIFF PREVIEW"), this))
     , m_message(new QLineEdit(this))
     , m_commit(makeGitButton(this, GitIcon::Commit, tr("Commit staged changes"), "gitCommit"))
 {
@@ -149,9 +217,13 @@ GitWidget::GitWidget(const NsHostApi *hostApi, NsExtensionHandle extension, QWid
     m_files->setHeaderHidden(true);
     m_files->setRootIsDecorated(true);
     m_files->setIndentation(14);
-    m_files->setColumnWidth(0, 38);
-    m_files->header()->setStretchLastSection(true);
+    m_files->header()->setSectionResizeMode(0, QHeaderView::Stretch);
+    m_files->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     m_diff->setReadOnly(true);
+    m_diff->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    m_diffLabel->setObjectName(QStringLiteral("gitSectionLabel"));
+    m_diffLabel->setContentsMargins(4, 2, 0, 0);
+    new DiffHighlighter(m_diff->document());
     m_message->setPlaceholderText(tr("Commit message"));
     m_message->setClearButtonEnabled(true);
     auto *refreshButton = makeGitButton(this, GitIcon::Refresh, tr("Refresh source control"), "gitRefresh");
@@ -214,6 +286,7 @@ GitWidget::GitWidget(const NsHostApi *hostApi, NsExtensionHandle extension, QWid
     layout->addWidget(m_githubAccount);
     layout->addLayout(changes);
     layout->addWidget(m_files, 1);
+    layout->addWidget(m_diffLabel);
     layout->addWidget(m_diff, 1);
     layout->addLayout(commitRow);
     connect(refreshButton, &QToolButton::clicked, this, &GitWidget::refresh);
@@ -330,10 +403,39 @@ void GitWidget::runInTerminal(const QString &program, const QStringList &argumen
         {directoryBytes.constData(), static_cast<size_t>(directoryBytes.size())});
 }
 
+void GitWidget::publishDecorations(const QList<QPair<QString, uint32_t>> &decorations)
+{
+    if (!m_hostApi || !m_hostApi->set_file_decorations || !m_extensionHandle) return;
+    QList<QByteArray> paths;
+    QList<QByteArray> labels;
+    paths.reserve(decorations.size());
+    labels.reserve(decorations.size());
+    for (const auto &[path, kind] : decorations) {
+        paths.push_back(path.toUtf8());
+        labels.push_back(statusText(QLatin1Char('M'), kind == NS_FILE_DECORATION_UNTRACKED)
+            .toUtf8());
+        if (kind == NS_FILE_DECORATION_ADDED) labels.last() = tr("Added").toUtf8();
+        else if (kind == NS_FILE_DECORATION_DELETED) labels.last() = tr("Deleted").toUtf8();
+        else if (kind == NS_FILE_DECORATION_CONFLICT) labels.last() = tr("Conflict").toUtf8();
+    }
+    QList<NsFileDecoration> native;
+    native.reserve(decorations.size());
+    for (qsizetype index = 0; index < decorations.size(); ++index) {
+        native.push_back({sizeof(NsFileDecoration),
+            {paths.at(index).constData(), static_cast<size_t>(paths.at(index).size())},
+            {labels.at(index).constData(), static_cast<size_t>(labels.at(index).size())},
+            decorations.at(index).second});
+    }
+    m_hostApi->set_file_decorations(m_hostApi->host_context, m_extensionHandle,
+        native.constData(), static_cast<size_t>(native.size()));
+}
+
 void GitWidget::refresh()
 {
     m_files->clear();
     m_diff->clear();
+    m_diffLabel->setText(tr("DIFF PREVIEW"));
+    publishDecorations({});
     refreshGitHubStatus();
     runGit({QStringLiteral("status"), QStringLiteral("--porcelain=v1"), QStringLiteral("--branch")},
            [this](const QString &output) {
@@ -352,15 +454,20 @@ void GitWidget::refresh()
         int stagedCount = 0;
         int workingCount = 0;
         int untrackedCount = 0;
+        QHash<QString, uint32_t> decorations;
         const auto addFile = [](QTreeWidgetItem *group, QChar status, const QString &path,
                                 bool staged, bool untracked) {
             auto *item = new QTreeWidgetItem(group);
-            item->setText(0, QString(status));
-            item->setText(1, path);
+            const uint32_t kind = decorationKind(status, untracked);
+            item->setText(0, path);
+            item->setText(1, statusText(status, untracked));
+            item->setForeground(1, QBrush(statusColor(kind)));
+            item->setTextAlignment(1, Qt::AlignRight | Qt::AlignVCenter);
             item->setData(0, Qt::UserRole, path);
             item->setData(0, Qt::UserRole + 1, staged);
             item->setData(0, Qt::UserRole + 2, untracked);
-            item->setToolTip(1, path);
+            item->setData(0, Qt::UserRole + 4, kind);
+            item->setToolTip(0, path);
         };
         for (int index = 1; index < lines.size(); ++index) {
             const QString line = lines.at(index);
@@ -371,15 +478,18 @@ void GitWidget::refresh()
             if (arrow >= 0) path = path.mid(arrow + 4);
             if (status == QStringLiteral("??")) {
                 addFile(untrackedGroup, QLatin1Char('U'), path, false, true);
+                decorations.insert(path, NS_FILE_DECORATION_UNTRACKED);
                 ++untrackedCount;
                 continue;
             }
             if (status.at(0) != QLatin1Char(' ')) {
                 addFile(stagedGroup, status.at(0), path, true, false);
+                decorations.insert(path, decorationKind(status.at(0)));
                 ++stagedCount;
             }
             if (status.at(1) != QLatin1Char(' ')) {
                 addFile(workingGroup, status.at(1), path, false, false);
+                decorations.insert(path, decorationKind(status.at(1)));
                 ++workingCount;
             }
         }
@@ -392,7 +502,11 @@ void GitWidget::refresh()
         }
         for (int row = 0; row < m_files->topLevelItemCount(); ++row)
             m_files->setFirstColumnSpanned(row, QModelIndex(), true);
-        m_files->setColumnWidth(0, 38);
+        QList<QPair<QString, uint32_t>> published;
+        published.reserve(decorations.size());
+        for (auto iterator = decorations.cbegin(); iterator != decorations.cend(); ++iterator)
+            published.push_back({iterator.key(), iterator.value()});
+        publishDecorations(published);
     });
 }
 
@@ -570,6 +684,9 @@ void GitWidget::showDiff(QTreeWidgetItem *item)
     if (!item) return;
     const QString path = item->data(0, Qt::UserRole).toString();
     if (path.isEmpty()) return;
+    m_diffLabel->setText(item->data(0, Qt::UserRole + 1).toBool()
+        ? tr("STAGED DIFF — %1").arg(path)
+        : tr("DIFF — %1").arg(path));
     if (item->data(0, Qt::UserRole + 2).toBool()) {
         QFile file(QDir(m_rootPath).filePath(path));
         if (file.open(QIODevice::ReadOnly)) {

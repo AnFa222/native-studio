@@ -142,6 +142,9 @@ private:
     static int32_t hostShowView(void *hostContext, NsStringView viewId);
     static int32_t hostRegisterView(void *hostContext, NsExtensionHandle extension,
                                     const NsViewSpec *view);
+    static int32_t hostSetFileDecorations(void *hostContext, NsExtensionHandle extension,
+                                          const NsFileDecoration *decorations,
+                                          size_t decorationCount);
 
     MainWindow *m_window = nullptr;
     QMenu *m_extensionsMenu = nullptr;

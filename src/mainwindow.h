@@ -25,6 +25,7 @@ class QTreeView;
 class QToolButton;
 class QToolBar;
 class ProjectSearchWidget;
+struct ExplorerFileDecoration;
 
 class MainWindow final : public QMainWindow
 {
@@ -53,6 +54,8 @@ public:
     bool runExtensionProcess(const QString &program, const QStringList &arguments,
                              const QString &workingDirectory = {});
     bool showExtensionView(const QString &viewId);
+    void setExtensionFileDecorations(const QString &extensionId,
+                                     const QList<ExplorerFileDecoration> &decorations);
 
 signals:
     void servicesLoaded();

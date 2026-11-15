@@ -2,11 +2,11 @@
   "manifestVersion": 1,
   "id": "dev.nativestudio.git",
   "name": "Git",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "abiVersion": 1,
   "description": "Native Git and GitHub source control with grouped staged, working-tree, and untracked changes, diffs, branches, history, stash, clone, sign-in, pull, and push.",
   "author": "Native Studio",
-  "permissions": ["ui.commands", "ui.views", "process.execute", "filesystem.read", "settings"],
+  "permissions": ["ui.commands", "ui.views", "ui.fileDecorations", "process.execute", "filesystem.read", "settings"],
   "binary": {
     "windows": "native_git.dll",
     "linux": "native_git.so",
