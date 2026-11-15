@@ -40,7 +40,6 @@ private:
     void runGit(const QStringList &arguments, const std::function<void(const QString &)> &finished);
     void refreshGitHubStatus();
     [[nodiscard]] QString configuredGit() const;
-    [[nodiscard]] QString configuredGitHubCli() const;
     [[nodiscard]] QString selectedPath() const;
 
     QString m_rootPath;

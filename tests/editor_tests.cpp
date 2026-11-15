@@ -1,6 +1,7 @@
 #include "codeeditor.h"
 #include "extensionmanager.h"
 #include "extensionmanagerdialog.h"
+#include "gitwidget.h"
 #include "languagemanager.h"
 #include "keybindingsdialog.h"
 #include "mainwindow.h"
@@ -132,6 +133,7 @@ private slots:
     void autoIndentsUsingLanguagePlugins();
     void problemsPanelTracksDiagnostics();
     void nativeWorkspaceFeaturesAreLazyAndAvailable();
+    void gitHubSignInUsesCredentialManager();
 };
 
 void EditorTests::startsWithOneUntitledEditor()
@@ -627,16 +629,12 @@ void EditorTests::settingsCenterIncludesCoreAndPluginPages()
         "extensions/settings/dev.nativestudio.code_tidy/python_indent_width");
     const QString gitPath = QStringLiteral(
         "extensions/settings/dev.nativestudio.git/git_path");
-    const QString githubCliPath = QStringLiteral(
-        "extensions/settings/dev.nativestudio.git/github_cli_path");
     SettingGuard formatGuard(formatPath);
     SettingGuard indentGuard(indentPath);
     SettingGuard gitGuard(gitPath);
-    SettingGuard githubCliGuard(githubCliPath);
     QSettings().remove(formatPath);
     QSettings().remove(indentPath);
     QSettings().remove(gitPath);
-    QSettings().remove(githubCliPath);
 
     MainWindow window;
     window.loadServicesNow();
@@ -669,10 +667,6 @@ void EditorTests::settingsCenterIncludesCoreAndPluginPages()
         QStringLiteral("extensionSetting.dev.nativestudio.git.git_path"));
     QVERIFY(gitExecutable != nullptr);
     QCOMPARE(gitExecutable->text(), QStringLiteral("git"));
-    auto *githubCli = dialog.findChild<QLineEdit *>(
-        QStringLiteral("extensionSetting.dev.nativestudio.git.github_cli_path"));
-    QVERIFY(githubCli != nullptr);
-    QCOMPARE(githubCli->text(), QStringLiteral("gh"));
 
     search->setText(QStringLiteral("interpreter"));
     int visibleCategories = 0;
@@ -1180,6 +1174,25 @@ void EditorTests::nativeWorkspaceFeaturesAreLazyAndAvailable()
         }
     }
     QVERIFY(restoredUnsavedText);
+}
+
+void EditorTests::gitHubSignInUsesCredentialManager()
+{
+    const QString gitPath = QStringLiteral(
+        "extensions/settings/dev.nativestudio.git/git_path");
+    SettingGuard gitGuard(gitPath);
+    QSettings().remove(gitPath);
+    GitWidget widget;
+    QSignalSpy requested(&widget, &GitWidget::runInTerminalRequested);
+    auto *signIn = widget.findChild<QPushButton *>(QStringLiteral("githubSignIn"));
+    QVERIFY(signIn != nullptr);
+    signIn->click();
+    QCOMPARE(requested.size(), 1);
+    const QList<QVariant> arguments = requested.takeFirst();
+    QCOMPARE(arguments.at(0).toString(), QStringLiteral("git"));
+    QCOMPARE(arguments.at(1).toStringList(),
+             QStringList({QStringLiteral("credential-manager"),
+                          QStringLiteral("github"), QStringLiteral("login")}));
 }
 
 QTEST_MAIN(EditorTests)

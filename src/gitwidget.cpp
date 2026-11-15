@@ -122,14 +122,6 @@ QString GitWidget::configuredGit() const
     return value.isEmpty() ? QStringLiteral("git") : value;
 }
 
-QString GitWidget::configuredGitHubCli() const
-{
-    const QString value = QSettings().value(
-        QStringLiteral("extensions/settings/dev.nativestudio.git/github_cli_path"),
-        QStringLiteral("gh")).toString().trimmed();
-    return value.isEmpty() ? QStringLiteral("gh") : value;
-}
-
 void GitWidget::refresh()
 {
     m_files->clear();
@@ -161,17 +153,19 @@ void GitWidget::refresh()
 void GitWidget::refreshGitHubStatus()
 {
     auto *process = new QProcess(this);
-    process->setProgram(configuredGitHubCli());
-    process->setArguments({QStringLiteral("auth"), QStringLiteral("status"),
-                           QStringLiteral("--hostname"), QStringLiteral("github.com")});
+    process->setProgram(configuredGit());
+    process->setArguments({QStringLiteral("credential-manager"), QStringLiteral("github"),
+                           QStringLiteral("list")});
     connect(process, &QProcess::finished, this, [this, process](int exitCode, QProcess::ExitStatus) {
-        m_githubAccount->setText(exitCode == 0 ? tr("GitHub: Signed in")
-                                               : tr("GitHub: Not signed in"));
+        const bool hasAccount = exitCode == 0
+            && !process->readAllStandardOutput().trimmed().isEmpty();
+        m_githubAccount->setText(hasAccount ? tr("GitHub: Signed in")
+                                            : tr("GitHub: Not signed in"));
         process->deleteLater();
     });
     connect(process, &QProcess::errorOccurred, this, [this, process](QProcess::ProcessError error) {
         if (error != QProcess::FailedToStart) return;
-        m_githubAccount->setText(tr("GitHub CLI not found"));
+        m_githubAccount->setText(tr("Git Credential Manager unavailable"));
         process->deleteLater();
     });
     process->start();
@@ -179,10 +173,9 @@ void GitWidget::refreshGitHubStatus()
 
 void GitWidget::signInToGitHub()
 {
-    emit runInTerminalRequested(configuredGitHubCli(),
-        {QStringLiteral("auth"), QStringLiteral("login"), QStringLiteral("--hostname"),
-         QStringLiteral("github.com"), QStringLiteral("--git-protocol"),
-         QStringLiteral("https"), QStringLiteral("--web")}, m_rootPath);
+    emit runInTerminalRequested(configuredGit(),
+        {QStringLiteral("credential-manager"), QStringLiteral("github"),
+         QStringLiteral("login")}, m_rootPath);
 }
 
 void GitWidget::pull()

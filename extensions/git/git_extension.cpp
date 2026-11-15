@@ -44,10 +44,9 @@ void openSourceControl(void *, const NsCommandContext *)
 void signInToGitHub(void *, const NsCommandContext *)
 {
     if (!hostApi || !hostApi->run_process) return;
-    const std::string program = setting("github_cli_path", "gh");
+    const std::string program = setting("git_path", "git");
     const NsStringView arguments[]{
-        view("auth"), view("login"), view("--hostname"), view("github.com"),
-        view("--git-protocol"), view("https"), view("--web")
+        view("credential-manager"), view("github"), view("login")
     };
     hostApi->run_process(hostApi->host_context, view(program), arguments,
                          sizeof(arguments) / sizeof(arguments[0]), {nullptr, 0});
@@ -90,16 +89,13 @@ int32_t activate(void *, const NsHostApi *host, NsExtensionHandle extension)
     extensionHandle = extension;
     const NsSettingSpec settings[]{
         {sizeof(NsSettingSpec), view("git_path"), view("Git executable"),
-         view("Executable name or absolute path used for Git commands."),
-         NS_SETTING_TEXT, view("git"), 0, 0, nullptr, 0},
-        {sizeof(NsSettingSpec), view("github_cli_path"), view("GitHub CLI executable"),
-         view("Executable name or absolute path to the official GitHub CLI."),
-         NS_SETTING_TEXT, view("gh"), 0, 0, nullptr, 0}
+         view("Executable name or absolute path used for Git and GitHub authentication."),
+         NS_SETTING_TEXT, view("git"), 0, 0, nullptr, 0}
     };
     const NsSettingsPageSpec settingsPage{
         sizeof(NsSettingsPageSpec), view("Git"),
         view("Configure the bundled native Git integration."),
-        view("git github source control executable path login pull push"), settings, 2
+        view("git github source control credential manager login pull push"), settings, 1
     };
     const NsCommandSpec command{
         sizeof(NsCommandSpec),
@@ -142,7 +138,7 @@ const NsExtensionDescriptor descriptor{
     NS_EXTENSION_ABI_VERSION,
     view("dev.nativestudio.git"),
     view("Git"),
-    view("1.1.0"),
+    view("1.1.1"),
     nullptr,
     &activate,
     &deactivate
