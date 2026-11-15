@@ -15,6 +15,7 @@ public:
     ~TerminalWidget() override;
 
     void setWorkingDirectory(const QString &directory);
+    void startDeferred();
     void executeProgram(const QString &program, const QStringList &arguments,
                         const QString &workingDirectory = {});
     [[nodiscard]] QString outputText() const;
@@ -37,4 +38,5 @@ private:
     QProcess *m_shell = nullptr;
     QProcess *m_runner = nullptr;
     QString m_workingDirectory;
+    bool m_shellStarted = false;
 };

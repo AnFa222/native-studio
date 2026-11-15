@@ -18,6 +18,7 @@
 #include <QSettings>
 #include <QSet>
 #include <QStandardPaths>
+#include <QTimer>
 
 #include <algorithm>
 #include <cstddef>
@@ -207,85 +208,135 @@ QList<NativeExtensionInfo> ExtensionManager::manifestsInDirectory(const QString 
     return result;
 }
 
+bool ExtensionManager::loadManifest(const QString &manifestPath, bool bundled)
+{
+    if (m_shuttingDown) return false;
+    NativeExtensionInfo manifest;
+    if (!readManifest(manifestPath, bundled, &manifest)
+        || !manifest.enabled || containsExtension(manifest.id)) return false;
+    const QFileInfo file(manifest.filePath);
+    auto extension = std::make_unique<LoadedExtension>();
+    extension->library = std::make_unique<QLibrary>(file.absoluteFilePath());
+    if (!extension->library->load()) {
+        qWarning().noquote() << "Could not load native extension" << file.fileName()
+                             << extension->library->errorString();
+        return false;
+    }
+
+    const auto entry = reinterpret_cast<NsExtensionEntryFunction>(
+        extension->library->resolve(NS_EXTENSION_ENTRY_SYMBOL));
+    if (!entry) {
+        extension->library->unload();
+        return false;
+    }
+
+    const NsExtensionDescriptor *descriptor = nullptr;
+    try {
+        descriptor = entry();
+    } catch (...) {
+        qWarning() << "Native extension entry point threw an exception:" << file.fileName();
+    }
+    const size_t requiredSize = offsetof(NsExtensionDescriptor, deactivate)
+        + sizeof(NsDeactivateCallback);
+    if (!descriptor || descriptor->struct_size < requiredSize
+        || descriptor->abi_version != NS_EXTENSION_ABI_VERSION || !descriptor->activate) {
+        qWarning() << "Native extension has an incompatible descriptor:" << file.fileName();
+        extension->library->unload();
+        return false;
+    }
+
+    const QString id = fromView(descriptor->id).trimmed();
+    const QString descriptorVersion = fromView(descriptor->version).trimmed();
+    if (id.compare(manifest.id, Qt::CaseSensitive) != 0
+        || (!manifest.version.isEmpty() && descriptorVersion != manifest.version)) {
+        qWarning() << "Native extension descriptor does not match its manifest:" << file.fileName();
+        extension->library->unload();
+        return false;
+    }
+    extension->descriptor = descriptor;
+    extension->info = manifest;
+    extension->info.loaded = true;
+    if (extension->info.name.isEmpty()) extension->info.name = id;
+
+    LoadedExtension *handle = extension.get();
+    m_extensions.push_back(std::move(extension));
+    int32_t activationResult = -1;
+    try {
+        activationResult = descriptor->activate(descriptor->extension_context, &m_hostApi,
+                                                 static_cast<NsExtensionHandle>(handle));
+    } catch (...) {
+        qWarning() << "Native extension activation threw an exception:" << id;
+    }
+    if (activationResult != 0) {
+        removeCommands(handle);
+        if (descriptor->deactivate) {
+            try {
+                descriptor->deactivate(descriptor->extension_context);
+            } catch (...) {
+                qWarning() << "Native extension cleanup threw an exception:" << id;
+            }
+        }
+        handle->library->unload();
+        m_extensions.pop_back();
+        return false;
+    }
+    emit extensionLoaded(id);
+    return true;
+}
+
 int ExtensionManager::loadExtensions(const QString &directory, bool bundled)
 {
     if (m_shuttingDown) return 0;
-    QDir extensionDirectory(directory);
+    const QDir extensionDirectory(directory);
     if (!extensionDirectory.exists()) return 0;
 
     int loadedCount = 0;
-    const auto manifests = manifestsInDirectory(directory, bundled);
-    for (const NativeExtensionInfo &manifest : manifests) {
-        if (!manifest.enabled || containsExtension(manifest.id)) continue;
-        const QFileInfo file(manifest.filePath);
-        auto extension = std::make_unique<LoadedExtension>();
-        extension->library = std::make_unique<QLibrary>(file.absoluteFilePath());
-        if (!extension->library->load()) {
-            qWarning().noquote() << "Could not load native extension" << file.fileName()
-                                 << extension->library->errorString();
-            continue;
-        }
-
-        const auto entry = reinterpret_cast<NsExtensionEntryFunction>(
-            extension->library->resolve(NS_EXTENSION_ENTRY_SYMBOL));
-        if (!entry) {
-            extension->library->unload();
-            continue;
-        }
-
-        const NsExtensionDescriptor *descriptor = nullptr;
-        try {
-            descriptor = entry();
-        } catch (...) {
-            qWarning() << "Native extension entry point threw an exception:" << file.fileName();
-        }
-        const size_t requiredSize = offsetof(NsExtensionDescriptor, deactivate)
-            + sizeof(NsDeactivateCallback);
-        if (!descriptor || descriptor->struct_size < requiredSize
-            || descriptor->abi_version != NS_EXTENSION_ABI_VERSION || !descriptor->activate) {
-            qWarning() << "Native extension has an incompatible descriptor:" << file.fileName();
-            extension->library->unload();
-            continue;
-        }
-
-        const QString id = fromView(descriptor->id).trimmed();
-        const QString descriptorVersion = fromView(descriptor->version).trimmed();
-        if (id.compare(manifest.id, Qt::CaseSensitive) != 0
-            || (!manifest.version.isEmpty() && descriptorVersion != manifest.version)) {
-            qWarning() << "Native extension descriptor does not match its manifest:" << file.fileName();
-            extension->library->unload();
-            continue;
-        }
-        extension->descriptor = descriptor;
-        extension->info = manifest;
-        extension->info.loaded = true;
-        if (extension->info.name.isEmpty()) extension->info.name = id;
-
-        LoadedExtension *handle = extension.get();
-        m_extensions.push_back(std::move(extension));
-        int32_t activationResult = -1;
-        try {
-            activationResult = descriptor->activate(descriptor->extension_context, &m_hostApi,
-                                                     static_cast<NsExtensionHandle>(handle));
-        } catch (...) {
-            qWarning() << "Native extension activation threw an exception:" << id;
-        }
-        if (activationResult != 0) {
-            removeCommands(handle);
-            if (descriptor->deactivate) {
-                try {
-                    descriptor->deactivate(descriptor->extension_context);
-                } catch (...) {
-                    qWarning() << "Native extension cleanup threw an exception:" << id;
-                }
-            }
-            handle->library->unload();
-            m_extensions.pop_back();
-            continue;
-        }
-        ++loadedCount;
+    const auto manifests = extensionDirectory.entryInfoList(
+        {QStringLiteral("*.json")}, QDir::Files | QDir::Readable,
+        QDir::Name | QDir::IgnoreCase);
+    for (const QFileInfo &manifest : manifests) {
+        if (loadManifest(manifest.absoluteFilePath(), bundled)) ++loadedCount;
     }
     return loadedCount;
+}
+
+void ExtensionManager::queueManifestDirectory(const QString &directory, bool bundled)
+{
+    const QDir extensionDirectory(directory);
+    const auto manifests = extensionDirectory.entryInfoList(
+        {QStringLiteral("*.json")}, QDir::Files | QDir::Readable,
+        QDir::Name | QDir::IgnoreCase);
+    for (const QFileInfo &manifest : manifests)
+        m_pendingManifests.push_back({manifest.absoluteFilePath(), bundled});
+}
+
+void ExtensionManager::loadDefaultExtensionsAsync()
+{
+    if (m_asyncLoading || m_shuttingDown) return;
+    QDir().mkpath(userExtensionDirectory());
+    applyPendingOperations();
+    m_pendingManifests.clear();
+    m_asyncLoadedCount = 0;
+    queueManifestDirectory(userExtensionDirectory(), false);
+    const QString bundled = bundledExtensionDirectory();
+    queueManifestDirectory(bundled, true);
+    const QString multiConfig = multiConfigExtensionDirectory();
+    if (QDir::cleanPath(multiConfig) != QDir::cleanPath(bundled))
+        queueManifestDirectory(multiConfig, true);
+    m_asyncLoading = true;
+    QTimer::singleShot(0, this, &ExtensionManager::loadNextManifest);
+}
+
+void ExtensionManager::loadNextManifest()
+{
+    if (m_pendingManifests.isEmpty() || m_shuttingDown) {
+        m_asyncLoading = false;
+        emit loadingFinished(m_asyncLoadedCount);
+        return;
+    }
+    const PendingManifest pending = m_pendingManifests.takeFirst();
+    if (loadManifest(pending.filePath, pending.bundled)) ++m_asyncLoadedCount;
+    QTimer::singleShot(0, this, &ExtensionManager::loadNextManifest);
 }
 
 int ExtensionManager::loadDefaultExtensions()

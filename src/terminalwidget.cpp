@@ -58,7 +58,6 @@ TerminalWidget::TerminalWidget(QWidget *parent)
     connect(m_runner, &QProcess::errorOccurred, this, [this](QProcess::ProcessError) {
         appendMessage(tr("[Run error: %1]\n").arg(m_runner->errorString()));
     });
-    startShell();
 }
 
 TerminalWidget::~TerminalWidget()
@@ -75,12 +74,19 @@ TerminalWidget::~TerminalWidget()
 
 void TerminalWidget::startShell()
 {
+    if (m_shellStarted) return;
+    m_shellStarted = true;
     m_shell->setWorkingDirectory(m_workingDirectory);
 #ifdef Q_OS_WIN
     m_shell->start(QStringLiteral("cmd.exe"), {QStringLiteral("/Q")});
 #else
     m_shell->start(QStringLiteral("/bin/sh"));
 #endif
+}
+
+void TerminalWidget::startDeferred()
+{
+    startShell();
 }
 
 void TerminalWidget::setWorkingDirectory(const QString &directory)
@@ -101,6 +107,7 @@ void TerminalWidget::submitCommand()
 {
     const QString command = m_input->text();
     if (command.trimmed().isEmpty()) return;
+    startShell();
     appendMessage(QStringLiteral("> %1\n").arg(command));
     m_shell->write((command +
 #ifdef Q_OS_WIN

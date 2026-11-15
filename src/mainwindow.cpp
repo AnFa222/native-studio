@@ -95,11 +95,18 @@ MainWindow::MainWindow(QWidget *parent)
 
     createActions();
     applyTheme();
-    m_languageManager->loadDefaultPlugins();
     m_extensionManager = new ExtensionManager(this, m_extensionsMenu, this);
-    const int extensionCount = m_extensionManager->loadDefaultExtensions();
-    statusBar()->showMessage(tr("Ready — %1 language plugin(s), %2 native extension(s) loaded")
-                                 .arg(m_languageManager->languages().size()).arg(extensionCount));
+    connect(m_languageManager, &LanguageManager::pluginLoaded,
+            this, [this] { refreshLanguageFeatures(); });
+    connect(m_languageManager, &LanguageManager::loadingFinished, this, [this](int) {
+        m_languageLoadingDone = true;
+        updateStartupStatus();
+    });
+    connect(m_extensionManager, &ExtensionManager::loadingFinished, this, [this](int) {
+        m_extensionLoadingDone = true;
+        updateStartupStatus();
+    });
+    statusBar()->showMessage(tr("Ready — loading language support and extensions…"));
     addEditor();
 }
 
@@ -114,6 +121,36 @@ ProjectExplorer *MainWindow::projectExplorer() const { return m_projectExplorer;
 LanguageManager *MainWindow::languageManager() const { return m_languageManager; }
 ExtensionManager *MainWindow::extensionManager() const { return m_extensionManager; }
 TerminalWidget *MainWindow::terminal() const { return m_terminal; }
+void MainWindow::startDeferredServices()
+{
+    if (m_servicesStarted) return;
+    m_servicesStarted = true;
+    m_terminal->startDeferred();
+    m_languageManager->loadDefaultPluginsAsync();
+    m_extensionManager->loadDefaultExtensionsAsync();
+}
+
+void MainWindow::loadServicesNow()
+{
+    if (m_servicesStarted) return;
+    m_servicesStarted = true;
+    m_terminal->startDeferred();
+    m_languageManager->loadDefaultPlugins();
+    m_extensionManager->loadDefaultExtensions();
+    m_languageLoadingDone = true;
+    m_extensionLoadingDone = true;
+    updateStartupStatus();
+}
+
+void MainWindow::updateStartupStatus()
+{
+    if (!m_languageLoadingDone || !m_extensionLoadingDone) return;
+    statusBar()->showMessage(tr("Ready — %1 language plugin(s), %2 native extension(s) loaded")
+                                 .arg(m_languageManager->languages().size())
+                                 .arg(m_extensionManager->loadedExtensions().size()));
+    emit servicesLoaded();
+}
+
 QString MainWindow::activeFilePath() const
 {
     const auto *editor = currentEditor();
@@ -414,6 +451,20 @@ void MainWindow::reloadLanguagePlugins()
         updateLanguageFeatures(editorAt(index));
     statusBar()->showMessage(tr("Loaded %1 new plugin(s); %2 language(s) available")
                                  .arg(loaded).arg(m_languageManager->languages().size()), 4000);
+}
+
+void MainWindow::refreshLanguageFeatures()
+{
+    for (int index = 0; index < m_tabs->count(); ++index) {
+        auto *editor = editorAt(index);
+        if (!editor) continue;
+        if (!editor->filePath().isEmpty()) {
+            editor->setSyntaxHighlighter(
+                m_languageManager->createHighlighter(editor->filePath(), editor->document()));
+        }
+        updateLanguageFeatures(editor);
+    }
+    updateRunAction();
 }
 
 void MainWindow::updateLanguageFeatures(CodeEditor *editor)

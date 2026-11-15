@@ -34,6 +34,7 @@ class EditorTests final : public QObject
 
 private slots:
     void startsWithOneUntitledEditor();
+    void loadsServicesIncrementally();
     void roundTripsUtf8File();
     void openingSameFileReusesTab();
     void highlightsCppKeywords();
@@ -64,6 +65,22 @@ void EditorTests::startsWithOneUntitledEditor()
     QCOMPARE(window.editorTabs()->count(), 1);
     QCOMPARE(window.editorTabs()->tabText(0), QStringLiteral("Untitled"));
     QVERIFY(window.projectTree() != nullptr);
+    QVERIFY(window.languageManager()->languages().isEmpty());
+    QVERIFY(window.extensionManager()->loadedExtensions().isEmpty());
+}
+
+void EditorTests::loadsServicesIncrementally()
+{
+    MainWindow window;
+    QSignalSpy finished(&window, &MainWindow::servicesLoaded);
+    window.startDeferredServices();
+
+    QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 5000);
+    QVERIFY(window.languageManager()->languages().contains(QStringLiteral("Python")));
+    const auto extensions = window.extensionManager()->loadedExtensions();
+    QVERIFY(std::any_of(extensions.cbegin(), extensions.cend(), [](const auto &extension) {
+        return extension.id == QStringLiteral("dev.nativestudio.hello");
+    }));
 }
 
 void EditorTests::roundTripsUtf8File()
@@ -95,6 +112,7 @@ void EditorTests::openingSameFileReusesTab()
     file.close();
 
     MainWindow window;
+    window.loadServicesNow();
     window.openFile(path);
     window.openFile(path);
     QCOMPARE(window.editorTabs()->count(), 1);
@@ -113,6 +131,7 @@ void EditorTests::highlightsCppKeywords()
     file.close();
 
     MainWindow window;
+    window.loadServicesNow();
     QVERIFY(window.languageManager()->languages().contains(QStringLiteral("C++")));
     window.openFile(path);
     auto *editor = qobject_cast<CodeEditor *>(window.editorTabs()->currentWidget());
@@ -149,6 +168,7 @@ void EditorTests::explorerShowsEveryFileType()
 void EditorTests::unknownLanguageUsesPlainText()
 {
     MainWindow window;
+    window.loadServicesNow();
     QCOMPARE(window.languageManager()->languageForFile(QStringLiteral("notes.xyz")),
              QStringLiteral("Plain Text"));
 }
@@ -164,6 +184,7 @@ void EditorTests::loadsPythonPlugin()
     file.close();
 
     MainWindow window;
+    window.loadServicesNow();
     QVERIFY(window.languageManager()->languages().contains(QStringLiteral("Python")));
     QCOMPARE(window.languageManager()->languageForFile(path), QStringLiteral("Python"));
     const auto runConfiguration = window.languageManager()->runConfiguration(path);
@@ -187,6 +208,7 @@ void EditorTests::loadsPythonPlugin()
 void EditorTests::terminalRunsProgram()
 {
     MainWindow window;
+    window.loadServicesNow();
     QSignalSpy finished(window.terminal(), &TerminalWidget::commandFinished);
 #ifdef Q_OS_WIN
     window.terminal()->executeProgram(QStringLiteral("cmd.exe"),
@@ -212,6 +234,7 @@ void EditorTests::runActionTracksSupportedFile()
     }
 
     MainWindow window;
+    window.loadServicesNow();
     auto *runAction = window.findChild<QAction *>(QStringLiteral("runCurrentFileAction"));
     QVERIFY(runAction != nullptr);
     QVERIFY(!runAction->isVisible());
@@ -237,6 +260,7 @@ void EditorTests::lineNumberGutterTracksDocument()
 void EditorTests::pluginExplorerHasMarketplaceControls()
 {
     MainWindow window;
+    window.loadServicesNow();
     PluginManagerDialog dialog(window.languageManager());
 
     QCOMPARE(dialog.windowTitle(), QStringLiteral("Plugin Explorer"));
@@ -255,6 +279,7 @@ void EditorTests::pluginExplorerHasMarketplaceControls()
 void EditorTests::loadsNativeBinaryExtension()
 {
     MainWindow window;
+    window.loadServicesNow();
     auto *manager = window.extensionManager();
     QVERIFY(manager != nullptr);
     const auto extensions = manager->loadedExtensions();
@@ -290,6 +315,7 @@ void EditorTests::loadsNativeBinaryExtension()
 void EditorTests::extensionManagerShowsManifestControls()
 {
     MainWindow window;
+    window.loadServicesNow();
     ExtensionManagerDialog dialog(window.extensionManager());
 
     QCOMPARE(dialog.windowTitle(), QStringLiteral("Native Extension Manager"));
@@ -310,6 +336,7 @@ void EditorTests::extensionManagerShowsManifestControls()
 void EditorTests::languagePluginsProvideCompletions()
 {
     MainWindow window;
+    window.loadServicesNow();
     const auto pythonItems = window.languageManager()->completionItems(
         QStringLiteral("example.py"),
         QStringLiteral("\"\"\"docstring_words should not complete\"\"\"\n"
@@ -341,6 +368,7 @@ void EditorTests::languagePluginsProvideCompletions()
 void EditorTests::languagePluginsDetectErrors()
 {
     MainWindow window;
+    window.loadServicesNow();
     const auto pythonProblems = window.languageManager()->diagnostics(
         QStringLiteral("broken.py"),
         QStringLiteral("if {'key': 1}\n    pass\n"));
@@ -374,6 +402,7 @@ void EditorTests::languagePluginsDetectErrors()
 void EditorTests::pythonAnalyzerFindsSemanticProblems()
 {
     MainWindow window;
+    window.loadServicesNow();
     const auto problems = window.languageManager()->diagnostics(
         QStringLiteral("analysis.py"),
         QStringLiteral("import os\n"
@@ -399,6 +428,7 @@ void EditorTests::pythonAnalyzerFindsSemanticProblems()
 void EditorTests::languagePluginsAcceptValidSyntax()
 {
     MainWindow window;
+    window.loadServicesNow();
     const auto pythonProblems = window.languageManager()->diagnostics(
         QStringLiteral("valid.py"),
         QStringLiteral("def greet(\n"
@@ -459,6 +489,7 @@ void EditorTests::analysisRefreshKeepsCompletionOpen()
     file.close();
 
     MainWindow window;
+    window.loadServicesNow();
     window.openFile(path);
     window.show();
     auto *editor = qobject_cast<CodeEditor *>(window.editorTabs()->currentWidget());
@@ -564,6 +595,7 @@ void EditorTests::problemsPanelTracksDiagnostics()
     file.close();
 
     MainWindow window;
+    window.loadServicesNow();
     window.openFile(path);
     auto *problems = window.findChild<QTreeWidget *>(QStringLiteral("problemsTree"));
     QVERIFY(problems != nullptr);

@@ -2,6 +2,7 @@
 
 #include <QApplication>
 #include <QCoreApplication>
+#include <QTimer>
 
 int main(int argc, char *argv[])
 {
@@ -11,5 +12,6 @@ int main(int argc, char *argv[])
 
     MainWindow window;
     window.show();
+    QTimer::singleShot(0, &window, &MainWindow::startDeferredServices);
     return application.exec();
 }

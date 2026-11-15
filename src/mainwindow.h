@@ -31,11 +31,16 @@ public:
     [[nodiscard]] QString activeFilePath() const;
     [[nodiscard]] QString projectDirectory() const;
     [[nodiscard]] bool activeDocumentModified() const;
+    void startDeferredServices();
+    void loadServicesNow();
     void showExtensionMessage(const QString &message, int timeoutMs = 3000);
     bool insertExtensionText(const QString &text);
     bool replaceExtensionDocument(const QString &text);
     bool runExtensionProcess(const QString &program, const QStringList &arguments,
                              const QString &workingDirectory = {});
+
+signals:
+    void servicesLoaded();
 
 public slots:
     void openProject(const QString &directory);
@@ -68,6 +73,8 @@ private:
     void applyTheme();
     void updateRunAction();
     void updateLanguageFeatures(CodeEditor *editor);
+    void refreshLanguageFeatures();
+    void updateStartupStatus();
     void updateProblems(CodeEditor *editor);
     [[nodiscard]] static QIcon createRunIcon();
 
@@ -82,4 +89,7 @@ private:
     QAction *m_runAction = nullptr;
     QMenu *m_extensionsMenu = nullptr;
     QString m_projectDirectory;
+    bool m_servicesStarted = false;
+    bool m_languageLoadingDone = false;
+    bool m_extensionLoadingDone = false;
 };

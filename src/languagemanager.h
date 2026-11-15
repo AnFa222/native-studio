@@ -33,6 +33,7 @@ public:
 
     int loadPlugins(const QString &directory, bool bundled = false);
     int loadDefaultPlugins();
+    void loadDefaultPluginsAsync();
     [[nodiscard]] QStringList languages() const;
     [[nodiscard]] QList<LanguagePluginInfo> pluginInfos() const;
     [[nodiscard]] QString languageForFile(const QString &filePath) const;
@@ -46,6 +47,10 @@ public:
     [[nodiscard]] static QString userPluginDirectory();
     static void applyPendingOperations();
 
+signals:
+    void pluginLoaded(const QString &languageName);
+    void loadingFinished(int loadedCount);
+
 private:
     struct LoadedPlugin {
         std::unique_ptr<QPluginLoader> loader;
@@ -53,6 +58,18 @@ private:
         LanguagePluginInfo info;
     };
 
+    struct PendingPlugin {
+        QString filePath;
+        bool bundled = false;
+    };
+
+    bool loadPluginFile(const QString &filePath, bool bundled);
+    void queuePluginDirectory(const QString &directory, bool bundled);
+    void loadNextPlugin();
+
     std::vector<LoadedPlugin> m_plugins;
     QHash<QString, LanguagePlugin *> m_byExtension;
+    QList<PendingPlugin> m_pendingPlugins;
+    int m_asyncLoadedCount = 0;
+    bool m_asyncLoading = false;
 };

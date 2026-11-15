@@ -39,6 +39,7 @@ public:
 
     int loadExtensions(const QString &directory, bool bundled = false);
     int loadDefaultExtensions();
+    void loadDefaultExtensionsAsync();
     void shutdown();
 
     [[nodiscard]] QList<NativeExtensionInfo> loadedExtensions() const;
@@ -51,9 +52,17 @@ public:
     [[nodiscard]] static QString userExtensionDirectory();
     static void applyPendingOperations();
 
+signals:
+    void extensionLoaded(const QString &extensionId);
+    void loadingFinished(int loadedCount);
+
 private:
     struct LoadedExtension;
     struct RegisteredCommand;
+    struct PendingManifest {
+        QString filePath;
+        bool bundled = false;
+    };
 
     [[nodiscard]] static QString fromView(NsStringView view);
     [[nodiscard]] static bool readManifest(const QString &path, bool bundled,
@@ -65,6 +74,9 @@ private:
     [[nodiscard]] static QString safeInstallBase(const QString &id);
     [[nodiscard]] QList<NativeExtensionInfo> manifestsInDirectory(const QString &directory,
                                                                   bool bundled) const;
+    bool loadManifest(const QString &manifestPath, bool bundled);
+    void queueManifestDirectory(const QString &directory, bool bundled);
+    void loadNextManifest();
     [[nodiscard]] bool containsExtension(const QString &id) const;
     bool registerCommand(LoadedExtension *owner, const NsCommandSpec *command);
     void triggerCommand(RegisteredCommand *command);
@@ -87,5 +99,8 @@ private:
     NsHostApi m_hostApi{};
     std::vector<std::unique_ptr<LoadedExtension>> m_extensions;
     std::vector<std::unique_ptr<RegisteredCommand>> m_commands;
+    QList<PendingManifest> m_pendingManifests;
+    int m_asyncLoadedCount = 0;
+    bool m_asyncLoading = false;
     bool m_shuttingDown = false;
 };

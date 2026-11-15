@@ -2,6 +2,8 @@
 
 A fully native, language-neutral desktop IDE shell built with C++20, Qt 6 Widgets, and CMake. It provides a tabbed text editor, UTF-8 atomic saves, unsaved-change protection, a VS Code-style workspace explorer, and dynamically loadable language plugins.
 
+The main window is shown before optional services start. Language plugins and native extensions are then loaded incrementally in interleaved event-loop jobs, while the terminal shell starts asynchronously. This keeps painting and input responsive without moving Qt plugin construction or extension UI callbacks onto unsafe worker threads.
+
 ## Language plugins
 
 Language support is not compiled into the editor core. Native Qt plugins are discovered from `plugins/languages` beside the executable. A plugin implements `LanguagePlugin`, advertises its file extensions, and creates a `QSyntaxHighlighter` for matching documents. C++ and Python support are included as independently deployed plugins; other languages can be installed without changing the core.
