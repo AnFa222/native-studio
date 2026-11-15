@@ -46,7 +46,7 @@ private slots:
     void editorAcceptsInlineCompletion();
     void analysisRefreshKeepsCompletionOpen();
     void backspaceRestoresCompletionSuggestions();
-    void autoClosesAndRemovesPairs();
+    void autoClosesAndKeepsPairsOnBackspace();
     void problemsPanelTracksDiagnostics();
 };
 
@@ -248,14 +248,31 @@ void EditorTests::languagePluginsProvideCompletions()
 {
     MainWindow window;
     const auto pythonItems = window.languageManager()->completionItems(
-        QStringLiteral("example.py"), QStringLiteral("def custom_symbol():\n    pri"));
+        QStringLiteral("example.py"),
+        QStringLiteral("\"\"\"docstring_words should not complete\"\"\"\n"
+                       "def custom_symbol():\n    real_value = 'hello_from_string'\n"
+                       "    # comment_words should not complete\n    pri"));
     QVERIFY(pythonItems.contains(QStringLiteral("print")));
     QVERIFY(pythonItems.contains(QStringLiteral("custom_symbol")));
+    QVERIFY(pythonItems.contains(QStringLiteral("real_value")));
+    QVERIFY(!pythonItems.contains(QStringLiteral("hello_from_string")));
+    QVERIFY(!pythonItems.contains(QStringLiteral("comment_words")));
+    QVERIFY(!pythonItems.contains(QStringLiteral("docstring_words")));
 
     const auto cppItems = window.languageManager()->completionItems(
-        QStringLiteral("example.cpp"), QStringLiteral("struct CustomWidget {};\nconste"));
+        QStringLiteral("example.cpp"),
+        QStringLiteral("struct CustomWidget {};\nint real_value = 1;\n"
+                       "const char *message = \"hello_from_string\";\n"
+                       "const char *raw = R\"(raw_string_words)\";\n"
+                       "// comment_words should not complete\n"
+                       "/* block_comment_words should not complete */\nconste"));
     QVERIFY(cppItems.contains(QStringLiteral("constexpr")));
     QVERIFY(cppItems.contains(QStringLiteral("CustomWidget")));
+    QVERIFY(cppItems.contains(QStringLiteral("real_value")));
+    QVERIFY(!cppItems.contains(QStringLiteral("hello_from_string")));
+    QVERIFY(!cppItems.contains(QStringLiteral("comment_words")));
+    QVERIFY(!cppItems.contains(QStringLiteral("raw_string_words")));
+    QVERIFY(!cppItems.contains(QStringLiteral("block_comment_words")));
 }
 
 void EditorTests::languagePluginsDetectErrors()
@@ -361,7 +378,7 @@ void EditorTests::backspaceRestoresCompletionSuggestions()
     QCOMPARE(completer->completionCount(), 2);
 }
 
-void EditorTests::autoClosesAndRemovesPairs()
+void EditorTests::autoClosesAndKeepsPairsOnBackspace()
 {
     CodeEditor editor;
     editor.show();
@@ -378,9 +395,14 @@ void EditorTests::autoClosesAndRemovesPairs()
     editor.clear();
     QTest::keyClick(&editor, Qt::Key_BracketLeft);
     QCOMPARE(editor.toPlainText(), QStringLiteral("[]"));
-    QTest::keyClick(&editor, Qt::Key_Backspace);
-    QVERIFY(editor.toPlainText().isEmpty());
 
+    editor.clear();
+    QTest::keyClick(&editor, Qt::Key_ParenLeft);
+    QTest::keyClick(&editor, Qt::Key_Backspace);
+    QCOMPARE(editor.toPlainText(), QStringLiteral(")"));
+    QCOMPARE(editor.textCursor().position(), 0);
+
+    editor.clear();
     QTest::keyClick(&editor, Qt::Key_QuoteDbl);
     QCOMPARE(editor.toPlainText(), QStringLiteral("\"\""));
     QCOMPARE(editor.textCursor().position(), 1);

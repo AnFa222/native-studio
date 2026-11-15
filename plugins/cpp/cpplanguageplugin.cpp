@@ -25,6 +25,103 @@ CodeDiagnostic diagnostic(int line, int column, QString message,
 {
     return {line, column, 1, severity, std::move(message)};
 }
+
+void blankCodeRange(QString &code, qsizetype first, qsizetype last)
+{
+    for (qsizetype index = first; index <= last && index < code.size(); ++index) {
+        if (code.at(index) != QLatin1Char('\n')) code[index] = QLatin1Char(' ');
+    }
+}
+
+QString codeWithoutCppStringsAndComments(const QString &text)
+{
+    QString code = text;
+    bool lineComment = false;
+    bool blockComment = false;
+    bool quoted = false;
+    bool escaped = false;
+    QChar quote;
+
+    for (qsizetype index = 0; index < text.size(); ++index) {
+        const QChar current = text.at(index);
+        const QChar next = index + 1 < text.size() ? text.at(index + 1) : QChar{};
+
+        if (lineComment) {
+            if (current == QLatin1Char('\n')) {
+                lineComment = false;
+            } else {
+                code[index] = QLatin1Char(' ');
+            }
+            continue;
+        }
+        if (blockComment) {
+            code[index] = current == QLatin1Char('\n') ? current : QLatin1Char(' ');
+            if (current == QLatin1Char('*') && next == QLatin1Char('/')) {
+                code[index + 1] = QLatin1Char(' ');
+                ++index;
+                blockComment = false;
+            }
+            continue;
+        }
+        if (quoted) {
+            code[index] = current == QLatin1Char('\n') ? current : QLatin1Char(' ');
+            if (escaped) {
+                escaped = false;
+            } else if (current == QLatin1Char('\\')) {
+                escaped = true;
+            } else if (current == quote || current == QLatin1Char('\n')) {
+                quoted = false;
+            }
+            continue;
+        }
+
+        if (current == QLatin1Char('/') && next == QLatin1Char('/')) {
+            code[index] = code[index + 1] = QLatin1Char(' ');
+            ++index;
+            lineComment = true;
+            continue;
+        }
+        if (current == QLatin1Char('/') && next == QLatin1Char('*')) {
+            code[index] = code[index + 1] = QLatin1Char(' ');
+            ++index;
+            blockComment = true;
+            continue;
+        }
+        if (current != QLatin1Char('"') && current != QLatin1Char('\'')) continue;
+
+        qsizetype prefixStart = index;
+        while (prefixStart > 0 && (text.at(prefixStart - 1).isLetterOrNumber()
+               || text.at(prefixStart - 1) == QLatin1Char('_'))) --prefixStart;
+        const QString prefix = text.mid(prefixStart, index - prefixStart);
+        static const QSet<QString> literalPrefixes{
+            QStringLiteral("u8"), QStringLiteral("u"), QStringLiteral("U"),
+            QStringLiteral("L"), QStringLiteral("R"), QStringLiteral("u8R"),
+            QStringLiteral("uR"), QStringLiteral("UR"), QStringLiteral("LR")
+        };
+        const bool recognizedPrefix = literalPrefixes.contains(prefix);
+        if (recognizedPrefix) blankCodeRange(code, prefixStart, index - 1);
+
+        if (current == QLatin1Char('"') && recognizedPrefix && prefix.endsWith(QLatin1Char('R'))) {
+            const qsizetype openParenthesis = text.indexOf(QLatin1Char('('), index + 1);
+            if (openParenthesis >= 0 && openParenthesis - index <= 17) {
+                const QString delimiter = text.mid(index + 1, openParenthesis - index - 1);
+                const QString terminator = QLatin1Char(')') + delimiter + QLatin1Char('"');
+                const qsizetype terminatorStart = text.indexOf(terminator, openParenthesis + 1);
+                const qsizetype literalEnd = terminatorStart >= 0
+                    ? terminatorStart + terminator.size() - 1 : text.size() - 1;
+                blankCodeRange(code, index, literalEnd);
+                index = literalEnd;
+                continue;
+            }
+        }
+
+        code[index] = QLatin1Char(' ');
+        quoted = true;
+        escaped = false;
+        quote = current;
+    }
+    return code;
+}
 }
 
 QString CppLanguagePlugin::languageName() const
@@ -78,7 +175,7 @@ QStringList CppLanguagePlugin::completionItems(const QString &documentText) cons
         QStringLiteral("move"), QStringLiteral("forward")
     };
     const QRegularExpression identifier(QStringLiteral(R"(\b[A-Za-z_][A-Za-z0-9_]*\b)"));
-    auto matches = identifier.globalMatch(documentText);
+    auto matches = identifier.globalMatch(codeWithoutCppStringsAndComments(documentText));
     while (matches.hasNext()) items.insert(matches.next().captured());
 
     QStringList result(items.begin(), items.end());

@@ -26,6 +26,88 @@ CodeDiagnostic diagnostic(int line, int column, QString message,
 {
     return {line, column, 1, severity, std::move(message)};
 }
+
+QString codeWithoutPythonStringsAndComments(const QString &text)
+{
+    QString code = text;
+    bool comment = false;
+    bool quoted = false;
+    bool triple = false;
+    bool escaped = false;
+    QChar quote;
+
+    for (qsizetype index = 0; index < text.size(); ++index) {
+        const QChar current = text.at(index);
+        const QChar next = index + 1 < text.size() ? text.at(index + 1) : QChar{};
+        const QChar afterNext = index + 2 < text.size() ? text.at(index + 2) : QChar{};
+
+        if (comment) {
+            if (current == QLatin1Char('\n')) {
+                comment = false;
+            } else {
+                code[index] = QLatin1Char(' ');
+            }
+            continue;
+        }
+
+        if (quoted) {
+            if (current == QLatin1Char('\n')) {
+                if (!triple) quoted = false;
+                escaped = false;
+                continue;
+            }
+            code[index] = QLatin1Char(' ');
+            if (escaped) {
+                escaped = false;
+                continue;
+            }
+            if (current == QLatin1Char('\\')) {
+                escaped = true;
+                continue;
+            }
+            if (triple && current == quote && next == quote && afterNext == quote) {
+                code[index + 1] = QLatin1Char(' ');
+                code[index + 2] = QLatin1Char(' ');
+                index += 2;
+                quoted = false;
+            } else if (!triple && current == quote) {
+                quoted = false;
+            }
+            continue;
+        }
+
+        if (current == QLatin1Char('#')) {
+            code[index] = QLatin1Char(' ');
+            comment = true;
+            continue;
+        }
+        if (current != QLatin1Char('\'') && current != QLatin1Char('"')) continue;
+
+        qsizetype prefixStart = index;
+        while (prefixStart > 0 && text.at(prefixStart - 1).isLetter()) --prefixStart;
+        const QString prefix = text.mid(prefixStart, index - prefixStart).toLower();
+        static const QSet<QString> stringPrefixes{
+            QStringLiteral("r"), QStringLiteral("u"), QStringLiteral("b"),
+            QStringLiteral("f"), QStringLiteral("br"), QStringLiteral("rb"),
+            QStringLiteral("fr"), QStringLiteral("rf")
+        };
+        if (stringPrefixes.contains(prefix)) {
+            for (qsizetype prefixIndex = prefixStart; prefixIndex < index; ++prefixIndex)
+                code[prefixIndex] = QLatin1Char(' ');
+        }
+        quote = current;
+        triple = next == current && afterNext == current;
+        code[index] = QLatin1Char(' ');
+        if (triple) {
+            code[index + 1] = QLatin1Char(' ');
+            code[index + 2] = QLatin1Char(' ');
+            index += 2;
+        }
+        quoted = true;
+        escaped = false;
+    }
+    return code;
+}
 }
 
 QString PythonLanguagePlugin::languageName() const
@@ -81,7 +163,7 @@ QStringList PythonLanguagePlugin::completionItems(const QString &documentText) c
         QStringLiteral("classmethod"), QStringLiteral("isinstance"), QStringLiteral("Exception")
     };
     const QRegularExpression identifier(QStringLiteral(R"(\b[A-Za-z_][A-Za-z0-9_]*\b)"));
-    auto matches = identifier.globalMatch(documentText);
+    auto matches = identifier.globalMatch(codeWithoutPythonStringsAndComments(documentText));
     while (matches.hasNext()) items.insert(matches.next().captured());
 
     QStringList result(items.begin(), items.end());
