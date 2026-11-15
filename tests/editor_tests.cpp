@@ -1250,6 +1250,10 @@ void EditorTests::closingLastFileShowsEmptyEditorState()
     window.openProject(directory.path());
     auto *closeFolder = window.findChild<QAction *>(QStringLiteral("closeProjectAction"));
     QVERIFY(closeFolder != nullptr);
+    QCOMPARE(closeFolder->text(), QStringLiteral("Close Folder"));
+    QVERIFY(closeFolder->icon().isNull());
+    QVERIFY(window.findChild<QToolBar *>(QStringLiteral("fileToolbar"))
+                ->actions().contains(closeFolder));
     QVERIFY(closeFolder->isEnabled());
     closeFolder->trigger();
     QVERIFY(window.projectDirectory().isEmpty());

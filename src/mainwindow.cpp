@@ -38,7 +38,6 @@
 #include <QPixmap>
 #include <QPushButton>
 #include <QStatusBar>
-#include <QStyle>
 #include <QSettings>
 #include <QSplitter>
 #include <QTabBar>
@@ -581,8 +580,7 @@ void MainWindow::createActions()
     openProjectAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_O));
     toolbar->insertAction(saveAction, openProjectAction);
     m_closeProjectAction = projectMenu->addAction(
-        style()->standardIcon(QStyle::SP_DialogCloseButton), tr("Close Folder"),
-        this, &MainWindow::closeProject);
+        tr("Close Folder"), this, &MainWindow::closeProject);
     m_closeProjectAction->setObjectName(QStringLiteral("closeProjectAction"));
     m_closeProjectAction->setEnabled(false);
     toolbar->insertAction(saveAction, m_closeProjectAction);
