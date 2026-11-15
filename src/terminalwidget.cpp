@@ -4,7 +4,6 @@
 #include <QEvent>
 #include <QFileInfo>
 #include <QFontDatabase>
-#include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QKeySequence>
 #include <QPlainTextEdit>
@@ -12,48 +11,32 @@
 #include <QScrollBar>
 #include <QSettings>
 #include <QTimer>
-#include <QToolButton>
 #include <QVBoxLayout>
 
 TerminalWidget::TerminalWidget(QWidget *parent, const QString &shellProgram,
                                const QStringList &shellArguments)
     : QWidget(parent)
     , m_output(new QPlainTextEdit(this))
-    , m_terminateButton(new QToolButton(this))
     , m_shell(new QProcess(this))
     , m_runner(new QProcess(this))
     , m_workingDirectory(QDir::currentPath())
     , m_shellProgram(shellProgram)
     , m_shellArguments(shellArguments)
 {
-    const auto font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
     m_output->setObjectName(QStringLiteral("terminalOutput"));
     m_output->setReadOnly(false);
     m_output->setUndoRedoEnabled(false);
     m_output->setMaximumBlockCount(10000);
-    m_output->setFont(font);
     m_output->setPlaceholderText(tr("Type commands directly in the terminal"));
     m_output->installEventFilter(this);
-
-    auto *header = new QHBoxLayout;
-    header->setContentsMargins(8, 4, 6, 4);
-    m_terminateButton->setObjectName(QStringLiteral("terminateTerminalButton"));
-    m_terminateButton->setText(tr("■ Terminate"));
-    m_terminateButton->setToolTip(tr("Terminate the running program or shell"));
-    m_terminateButton->setAutoRaise(true);
-    header->addStretch();
-    header->addWidget(m_terminateButton);
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
-    layout->addLayout(header);
     layout->addWidget(m_output);
 
     m_shell->setProcessChannelMode(QProcess::MergedChannels);
     m_runner->setProcessChannelMode(QProcess::MergedChannels);
-    connect(m_terminateButton, &QToolButton::clicked,
-            this, &TerminalWidget::terminateActiveProcess);
     connect(m_shell, &QProcess::readyReadStandardOutput, this, &TerminalWidget::readShellOutput);
     connect(m_runner, &QProcess::readyReadStandardOutput, this, &TerminalWidget::readRunnerOutput);
     connect(m_shell, &QProcess::stateChanged, this, &TerminalWidget::updateTerminateButton);
@@ -242,8 +225,13 @@ void TerminalWidget::terminateActiveProcess()
 
 void TerminalWidget::updateTerminateButton()
 {
-    m_terminateButton->setEnabled(m_runner->state() != QProcess::NotRunning
-                                  || m_shell->state() != QProcess::NotRunning);
+    emit terminateAvailabilityChanged(canTerminate());
+}
+
+bool TerminalWidget::canTerminate() const
+{
+    return m_runner->state() != QProcess::NotRunning
+        || m_shell->state() != QProcess::NotRunning;
 }
 
 void TerminalWidget::executeProgram(const QString &program, const QStringList &arguments,

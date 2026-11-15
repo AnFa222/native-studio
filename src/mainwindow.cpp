@@ -18,11 +18,16 @@
 #include <QCloseEvent>
 #include <QDir>
 #include <QDockWidget>
+#include <QDrag>
+#include <QDragEnterEvent>
+#include <QDropEvent>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QHeaderView>
 #include <QLabel>
 #include <QMenuBar>
+#include <QMimeData>
+#include <QMouseEvent>
 #include <QMessageBox>
 #include <QPainter>
 #include <QPalette>
@@ -40,9 +45,60 @@
 #include <QTreeView>
 #include <QTreeWidget>
 
+#include <functional>
+
+namespace {
+class FileTabBar final : public QTabBar
+{
+public:
+    using PathProvider = std::function<QString(int)>;
+    void setPathProvider(PathProvider provider) { m_pathProvider = std::move(provider); }
+
+protected:
+    void mousePressEvent(QMouseEvent *event) override
+    {
+        m_pressPosition = event->position().toPoint();
+        QTabBar::mousePressEvent(event);
+    }
+
+    void mouseMoveEvent(QMouseEvent *event) override
+    {
+        if ((event->buttons() & Qt::LeftButton) && !rect().contains(event->position().toPoint())
+            && (event->position().toPoint() - m_pressPosition).manhattanLength()
+                >= QApplication::startDragDistance()) {
+            const int index = tabAt(m_pressPosition);
+            const QString path = m_pathProvider ? m_pathProvider(index) : QString{};
+            if (!path.isEmpty()) {
+                auto *mime = new QMimeData;
+                mime->setUrls({QUrl::fromLocalFile(path)});
+                auto *drag = new QDrag(this);
+                drag->setMimeData(mime);
+                drag->exec(Qt::CopyAction);
+                return;
+            }
+        }
+        QTabBar::mouseMoveEvent(event);
+    }
+
+private:
+    QPoint m_pressPosition;
+    PathProvider m_pathProvider;
+};
+
+class FileTabWidget final : public QTabWidget
+{
+public:
+    explicit FileTabWidget(QWidget *parent = nullptr) : QTabWidget(parent)
+    {
+        setTabBar(new FileTabBar);
+    }
+    FileTabBar *fileTabBar() const { return static_cast<FileTabBar *>(tabBar()); }
+};
+}
+
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
-    , m_tabs(new QTabWidget(this))
+    , m_tabs(new FileTabWidget(this))
     , m_activeTabs(m_tabs)
     , m_editorSplitter(new QSplitter(Qt::Horizontal, this))
     , m_projectExplorer(new ProjectExplorer(this))
@@ -53,6 +109,7 @@ MainWindow::MainWindow(QWidget *parent)
     setObjectName(QStringLiteral("mainWindow"));
     setWindowTitle(tr("Native Studio"));
     resize(1200, 760);
+    setAcceptDrops(true);
 
     m_tabs->setObjectName(QStringLiteral("editorTabs"));
     configureEditorGroup(m_tabs);
@@ -63,27 +120,35 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_projectExplorer, &ProjectExplorer::fileActivated, this, &MainWindow::openFile);
     connect(m_projectExplorer, &ProjectExplorer::openFolderRequested, this, &MainWindow::chooseProject);
 
-    auto *dock = new QDockWidget(tr("EXPLORER"), this);
-    dock->setObjectName(QStringLiteral("projectExplorerDock"));
-    dock->setWidget(m_projectExplorer);
-    dock->setMinimumWidth(260);
-    addDockWidget(Qt::LeftDockWidgetArea, dock);
+    m_projectExplorerDock = new QDockWidget(tr("EXPLORER"), this);
+    m_projectExplorerDock->setObjectName(QStringLiteral("projectExplorerDock"));
+    m_projectExplorerDock->toggleViewAction()->setObjectName(QStringLiteral("toggleExplorerAction"));
+    m_projectExplorerDock->toggleViewAction()->setText(tr("Explorer"));
+    m_projectExplorerDock->setWidget(m_projectExplorer);
+    m_projectExplorerDock->setMinimumWidth(260);
+    addDockWidget(Qt::LeftDockWidgetArea, m_projectExplorerDock);
 
     m_terminalDock = new QDockWidget(tr("TERMINAL"), this);
     m_terminalDock->setObjectName(QStringLiteral("terminalDock"));
     m_terminalTabs->setObjectName(QStringLiteral("terminalTabs"));
     m_terminalTabs->setDocumentMode(true);
-    m_terminalTabs->setTabsClosable(true);
+    m_terminalTabs->setTabsClosable(false);
     m_terminalTabs->addTab(m_terminal, tr("Terminal 1"));
+    m_terminalTerminateButton = new QToolButton(m_terminalTabs);
+    m_terminalTerminateButton->setObjectName(QStringLiteral("terminateTerminalButton"));
+    m_terminalTerminateButton->setText(tr("■ Terminate"));
+    m_terminalTerminateButton->setToolTip(tr("Terminate the running program or shell"));
+    m_terminalTerminateButton->setFocusPolicy(Qt::NoFocus);
+    m_terminalTerminateButton->setEnabled(false);
+    m_terminalTabs->setCornerWidget(m_terminalTerminateButton, Qt::TopRightCorner);
+    connect(m_terminalTerminateButton, &QToolButton::clicked, this, [this] {
+        if (m_terminal) m_terminal->terminateActiveProcess();
+    });
+    connectTerminal(m_terminal);
     connect(m_terminalTabs, &QTabWidget::currentChanged, this, [this](int index) {
         if (auto *terminal = qobject_cast<TerminalWidget *>(m_terminalTabs->widget(index)))
             m_terminal = terminal;
-    });
-    connect(m_terminalTabs, &QTabWidget::tabCloseRequested, this, [this](int index) {
-        if (m_terminalTabs->count() <= 1) return;
-        QWidget *widget = m_terminalTabs->widget(index);
-        m_terminalTabs->removeTab(index);
-        widget->deleteLater();
+        m_terminalTerminateButton->setEnabled(m_terminal && m_terminal->canTerminate());
     });
     m_terminalDock->setWidget(m_terminalTabs);
     m_terminalDock->setMinimumHeight(160);
@@ -329,6 +394,7 @@ void MainWindow::createActions()
                                 this, &MainWindow::manageExtensions);
     m_extensionsMenu->addSeparator();
     runMenu->addAction(m_runAction);
+    viewMenu->addAction(m_projectExplorerDock->toggleViewAction());
     viewMenu->addAction(m_terminalDock->toggleViewAction());
     viewMenu->addAction(m_problemsDock->toggleViewAction());
     viewMenu->addAction(m_outlineDock->toggleViewAction());
@@ -400,6 +466,9 @@ void MainWindow::applyTheme()
             QToolButton:hover { background: #d0d7de; }
             QToolButton#editorTabCloseButton { color: #57606a; background: transparent; border: 0; border-radius: 3px; padding: 0; font-size: 15px; font-weight: 400; }
             QToolButton#editorTabCloseButton:hover { color: #24292f; background: #d0d7de; }
+            QToolButton#terminateTerminalButton { background: #cf222e; color: #ffffff; border: 1px solid #a40e26; border-radius: 4px; padding: 4px 10px; margin: 2px 6px; font-weight: 600; }
+            QToolButton#terminateTerminalButton:hover { background: #a40e26; color: #ffffff; }
+            QToolButton#terminateTerminalButton:disabled { background: #d8a4aa; color: #f6f8fa; border-color: #c9828a; }
             QPlainTextEdit#codeEditor { background: #ffffff; color: #24292f; border: 0; selection-background-color: #b6e3ff; selection-color: #24292f; padding: 4px 0 0 6px; }
             QLineEdit, QComboBox, QSpinBox, QListWidget { background: #ffffff; color: #24292f; border: 1px solid #d0d7de; border-radius: 4px; padding: 5px 7px; }
             QTableWidget, QTreeWidget { background: #ffffff; alternate-background-color: #f6f8fa; color: #24292f; border: 1px solid #d0d7de; selection-background-color: #0969da; selection-color: #ffffff; }
@@ -434,6 +503,10 @@ void MainWindow::applyTheme()
         QToolButton#editorTabCloseButton { color: #8b949e; background: transparent; border: 0; border-radius: 3px; padding: 0; font-size: 15px; font-weight: 400; }
         QToolButton#editorTabCloseButton:hover { color: #ffffff; background: #30363d; }
         QToolButton#editorTabCloseButton:pressed { color: #ffffff; background: #484f58; }
+        QToolButton#terminateTerminalButton { background: #da3633; color: #ffffff; border: 1px solid #f85149; border-radius: 4px; padding: 4px 10px; margin: 2px 6px; font-weight: 600; }
+        QToolButton#terminateTerminalButton:hover { background: #f85149; color: #ffffff; }
+        QToolButton#terminateTerminalButton:pressed { background: #b62324; color: #ffffff; }
+        QToolButton#terminateTerminalButton:disabled { background: #5b2525; color: #9b7777; border-color: #713333; }
         QPlainTextEdit#codeEditor { background: #0d1117; color: #e6edf3; border: 0; selection-background-color: #264f78; selection-color: #ffffff; padding: 4px 0 0 6px; }
         QPlainTextEdit#terminalOutput { background: #010409; color: #ffffff; border: 0; selection-background-color: #1f6feb; selection-color: #ffffff; padding: 5px 8px; }
         QLineEdit { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 4px; padding: 5px 7px; selection-background-color: #1f6feb; }
@@ -507,6 +580,12 @@ void MainWindow::configureEditorGroup(QTabWidget *tabs)
     tabs->setTabsClosable(false);
     tabs->setMovable(true);
     tabs->setDocumentMode(true);
+    if (auto *fileTabs = dynamic_cast<FileTabWidget *>(tabs)) {
+        fileTabs->fileTabBar()->setPathProvider([this, tabs](int index) {
+            const auto *editor = editorAt(tabs, index);
+            return editor ? editor->filePath() : QString{};
+        });
+    }
     connect(tabs, &QTabWidget::currentChanged, this, [this, tabs] {
         if (tabs->currentIndex() >= 0) m_activeTabs = tabs;
         updateRunAction();
@@ -550,6 +629,7 @@ CodeEditor *MainWindow::addEditor(const QString &title)
 {
     QTabWidget *tabs = m_activeTabs ? m_activeTabs : m_tabs;
     auto *editor = new CodeEditor(tabs);
+    editor->setAcceptDrops(false);
     editor->setIndentationDeltaProvider([this, editor](const QString &lineText) {
         return m_languageManager->indentationDeltaAfterLine(editor->filePath(), lineText);
     });
@@ -907,7 +987,7 @@ void MainWindow::showProjectSearch()
 void MainWindow::splitEditorRight()
 {
     if (!m_secondaryTabs) {
-        m_secondaryTabs = new QTabWidget(m_editorSplitter);
+        m_secondaryTabs = new FileTabWidget(m_editorSplitter);
         m_secondaryTabs->setObjectName(QStringLiteral("secondaryEditorTabs"));
         configureEditorGroup(m_secondaryTabs);
         m_editorSplitter->addWidget(m_secondaryTabs);
@@ -976,12 +1056,57 @@ TerminalWidget *MainWindow::createTerminal(const QString &title, const QString &
     terminal->setWorkingDirectory(m_projectDirectory.isEmpty() ? QDir::currentPath()
                                                                 : m_projectDirectory);
     const int index = m_terminalTabs->addTab(terminal, title);
+    connectTerminal(terminal);
     m_terminalTabs->setCurrentIndex(index);
+    updateTerminalCloseButtons();
     m_terminal = terminal;
     if (m_servicesStarted) terminal->startDeferred();
     m_terminalDock->show();
     m_terminalDock->raise();
     return terminal;
+}
+
+void MainWindow::connectTerminal(TerminalWidget *terminal)
+{
+    connect(terminal, &TerminalWidget::terminateAvailabilityChanged, this,
+            [this, terminal](bool available) {
+        if (terminal == m_terminal) m_terminalTerminateButton->setEnabled(available);
+    });
+}
+
+void MainWindow::updateTerminalCloseButtons()
+{
+    for (int index = 0; index < m_terminalTabs->count(); ++index) {
+        QWidget *oldButton = m_terminalTabs->tabBar()->tabButton(index, QTabBar::RightSide);
+        m_terminalTabs->tabBar()->setTabButton(index, QTabBar::RightSide, nullptr);
+        if (oldButton) oldButton->deleteLater();
+        if (m_terminalTabs->count() <= 1) continue;
+        auto *button = new QToolButton(m_terminalTabs->tabBar());
+        button->setObjectName(QStringLiteral("editorTabCloseButton"));
+        button->setText(QStringLiteral("\u00d7"));
+        button->setToolTip(tr("Close terminal"));
+        button->setAutoRaise(true);
+        button->setFocusPolicy(Qt::NoFocus);
+        button->setFixedSize(18, 18);
+        m_terminalTabs->tabBar()->setTabButton(index, QTabBar::RightSide, button);
+        connect(button, &QToolButton::clicked, this, [this, button] {
+            for (int tab = 0; tab < m_terminalTabs->count(); ++tab) {
+                if (m_terminalTabs->tabBar()->tabButton(tab, QTabBar::RightSide) == button) {
+                    closeTerminalTab(tab);
+                    return;
+                }
+            }
+        });
+    }
+}
+
+void MainWindow::closeTerminalTab(int index)
+{
+    if (m_terminalTabs->count() <= 1 || index < 0 || index >= m_terminalTabs->count()) return;
+    QWidget *widget = m_terminalTabs->widget(index);
+    m_terminalTabs->removeTab(index);
+    widget->deleteLater();
+    updateTerminalCloseButtons();
 }
 
 void MainWindow::newTerminal()
@@ -1111,47 +1236,59 @@ void MainWindow::restoreSession()
     QSettings settings;
     const QString project = settings.value(QStringLiteral("session/project")).toString();
     if (QFileInfo(project).isDir()) openProject(project);
-    const QVariantList documents = settings.value(QStringLiteral("session/documents")).toList();
-    if (documents.isEmpty()) return;
+    m_pendingSessionDocuments = settings.value(QStringLiteral("session/documents")).toList();
+    if (m_pendingSessionDocuments.isEmpty()) return;
     while (m_tabs->count() > 0) {
         QWidget *widget = m_tabs->widget(0);
         m_tabs->removeTab(0);
         widget->deleteLater();
     }
-    for (const QVariant &value : documents) {
-        const QVariantMap document = value.toMap();
-        const int group = document.value(QStringLiteral("group")).toInt();
-        if (group == 1 && !m_secondaryTabs) {
-            m_secondaryTabs = new QTabWidget(m_editorSplitter);
-            m_secondaryTabs->setObjectName(QStringLiteral("secondaryEditorTabs"));
-            configureEditorGroup(m_secondaryTabs);
-            m_editorSplitter->addWidget(m_secondaryTabs);
-        }
-        m_activeTabs = group == 1 && m_secondaryTabs ? m_secondaryTabs : m_tabs;
-        auto *editor = addEditor(document.value(QStringLiteral("title"), tr("Untitled")).toString());
-        const QString path = document.value(QStringLiteral("path")).toString();
-        if (!path.isEmpty() && QFileInfo::exists(path)) {
-            QString error;
-            if (editor->loadFromFile(path, &error))
-                editor->setSyntaxHighlighter(m_languageManager->createHighlighter(path, editor->document()));
-        }
-        if (document.contains(QStringLiteral("text"))) {
-            editor->setPlainText(document.value(QStringLiteral("text")).toString());
-            editor->document()->setModified(document.value(QStringLiteral("modified")).toBool());
-        }
-        QTextCursor cursor = editor->textCursor();
-        cursor.setPosition(qBound(0, document.value(QStringLiteral("cursor")).toInt(),
-                                  editor->document()->characterCount() - 1));
-        editor->setTextCursor(cursor);
-        updateTabTitle(editor);
-        updateLanguageFeatures(editor);
+    m_sessionDocumentIndex = 0;
+    m_sessionPrimaryIndex = settings.value(QStringLiteral("session/primaryIndex"), 0).toInt();
+    m_sessionSecondaryIndex = settings.value(QStringLiteral("session/secondaryIndex"), 0).toInt();
+    m_sessionActiveGroup = settings.value(QStringLiteral("session/activeGroup"), 0).toInt();
+    m_sessionSplitterState = settings.value(QStringLiteral("session/editorSplitter")).toByteArray();
+    restoreNextSessionDocument();
+}
+
+void MainWindow::restoreNextSessionDocument()
+{
+    if (m_sessionDocumentIndex >= m_pendingSessionDocuments.size()) {
+        m_tabs->setCurrentIndex(m_sessionPrimaryIndex);
+        if (m_secondaryTabs) m_secondaryTabs->setCurrentIndex(m_sessionSecondaryIndex);
+        m_activeTabs = m_sessionActiveGroup == 1 && m_secondaryTabs ? m_secondaryTabs : m_tabs;
+        m_editorSplitter->restoreState(m_sessionSplitterState);
+        m_pendingSessionDocuments.clear();
+        return;
     }
-    m_tabs->setCurrentIndex(settings.value(QStringLiteral("session/primaryIndex"), 0).toInt());
-    if (m_secondaryTabs)
-        m_secondaryTabs->setCurrentIndex(settings.value(QStringLiteral("session/secondaryIndex"), 0).toInt());
-    m_activeTabs = settings.value(QStringLiteral("session/activeGroup"), 0).toInt() == 1
-        && m_secondaryTabs ? m_secondaryTabs : m_tabs;
-    m_editorSplitter->restoreState(settings.value(QStringLiteral("session/editorSplitter")).toByteArray());
+
+    const QVariantMap document = m_pendingSessionDocuments.at(m_sessionDocumentIndex++).toMap();
+    const int group = document.value(QStringLiteral("group")).toInt();
+    if (group == 1 && !m_secondaryTabs) {
+        m_secondaryTabs = new FileTabWidget(m_editorSplitter);
+        m_secondaryTabs->setObjectName(QStringLiteral("secondaryEditorTabs"));
+        configureEditorGroup(m_secondaryTabs);
+        m_editorSplitter->addWidget(m_secondaryTabs);
+    }
+    m_activeTabs = group == 1 && m_secondaryTabs ? m_secondaryTabs : m_tabs;
+    auto *editor = addEditor(document.value(QStringLiteral("title"), tr("Untitled")).toString());
+    const QString path = document.value(QStringLiteral("path")).toString();
+    if (!path.isEmpty() && QFileInfo::exists(path)) {
+        QString error;
+        if (editor->loadFromFile(path, &error))
+            editor->setSyntaxHighlighter(m_languageManager->createHighlighter(path, editor->document()));
+    }
+    if (document.contains(QStringLiteral("text"))) {
+        editor->setPlainText(document.value(QStringLiteral("text")).toString());
+        editor->document()->setModified(document.value(QStringLiteral("modified")).toBool());
+    }
+    QTextCursor cursor = editor->textCursor();
+    cursor.setPosition(qBound(0, document.value(QStringLiteral("cursor")).toInt(),
+                              editor->document()->characterCount() - 1));
+    editor->setTextCursor(cursor);
+    updateTabTitle(editor);
+    updateLanguageFeatures(editor);
+    QTimer::singleShot(0, this, &MainWindow::restoreNextSessionDocument);
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)
@@ -1161,4 +1298,24 @@ void MainWindow::closeEvent(QCloseEvent *event)
     settings.setValue(QStringLiteral("window/geometry"), saveGeometry());
     settings.setValue(QStringLiteral("window/state"), saveState());
     event->accept();
+}
+
+void MainWindow::dragEnterEvent(QDragEnterEvent *event)
+{
+    if (event->mimeData()->hasUrls()) event->acceptProposedAction();
+    else QMainWindow::dragEnterEvent(event);
+}
+
+void MainWindow::dropEvent(QDropEvent *event)
+{
+    bool opened = false;
+    for (const QUrl &url : event->mimeData()->urls()) {
+        const QString path = url.toLocalFile();
+        if (QFileInfo(path).isFile()) {
+            openFile(path);
+            opened = true;
+        }
+    }
+    if (opened) event->acceptProposedAction();
+    else QMainWindow::dropEvent(event);
 }

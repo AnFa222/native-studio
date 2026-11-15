@@ -2,9 +2,12 @@
 
 #include <QMainWindow>
 #include <QStringList>
+#include <QVariant>
 
 class CodeEditor;
 class QAction;
+class QDragEnterEvent;
+class QDropEvent;
 class QIcon;
 class QMenu;
 class QLabel;
@@ -17,6 +20,7 @@ class QTreeWidget;
 class QSplitter;
 class TerminalWidget;
 class QTreeView;
+class QToolButton;
 class ProjectSearchWidget;
 class GitWidget;
 
@@ -56,6 +60,8 @@ public slots:
 
 protected:
     void closeEvent(QCloseEvent *event) override;
+    void dragEnterEvent(QDragEnterEvent *event) override;
+    void dropEvent(QDropEvent *event) override;
 
 private slots:
     void createFile();
@@ -103,9 +109,13 @@ private:
     void updateOutline(CodeEditor *editor);
     void saveSession();
     void restoreSession();
+    void restoreNextSessionDocument();
     void applyStoredKeybindings();
     TerminalWidget *createTerminal(const QString &title, const QString &program = {},
                                    const QStringList &arguments = {});
+    void updateTerminalCloseButtons();
+    void closeTerminalTab(int index);
+    void connectTerminal(TerminalWidget *terminal);
     [[nodiscard]] static QIcon createRunIcon();
 
     QTabWidget *m_tabs = nullptr;
@@ -117,6 +127,8 @@ private:
     ExtensionManager *m_extensionManager = nullptr;
     TerminalWidget *m_terminal = nullptr;
     QTabWidget *m_terminalTabs = nullptr;
+    QToolButton *m_terminalTerminateButton = nullptr;
+    QDockWidget *m_projectExplorerDock = nullptr;
     QDockWidget *m_terminalDock = nullptr;
     QDockWidget *m_problemsDock = nullptr;
     QTreeWidget *m_problemsTree = nullptr;
@@ -138,4 +150,10 @@ private:
     bool m_servicesStarted = false;
     bool m_languageLoadingDone = false;
     bool m_extensionLoadingDone = false;
+    QVariantList m_pendingSessionDocuments;
+    int m_sessionDocumentIndex = 0;
+    int m_sessionPrimaryIndex = 0;
+    int m_sessionSecondaryIndex = -1;
+    int m_sessionActiveGroup = 0;
+    QByteArray m_sessionSplitterState;
 };

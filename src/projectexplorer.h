@@ -3,6 +3,7 @@
 #include <QWidget>
 
 class QFileSystemModel;
+class QEvent;
 class QLabel;
 class QLineEdit;
 class QModelIndex;
@@ -25,6 +26,9 @@ signals:
     void fileActivated(const QString &path);
     void openFolderRequested();
 
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
 private slots:
     void activate(const QModelIndex &index);
     void showContextMenu(const QPoint &position);
@@ -40,12 +44,14 @@ private:
     [[nodiscard]] QString selectedPath() const;
     [[nodiscard]] QString targetDirectory() const;
     void createEntry(bool directory);
+    void ensureModel();
 
     QFileSystemModel *m_model = nullptr;
     QTreeView *m_tree = nullptr;
     QLabel *m_workspaceLabel = nullptr;
     QLabel *m_breadcrumb = nullptr;
     QLineEdit *m_filter = nullptr;
+    QWidget *m_emptyState = nullptr;
     QPushButton *m_openFolder = nullptr;
     QString m_rootPath;
 };

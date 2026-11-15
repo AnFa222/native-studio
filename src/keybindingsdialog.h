@@ -4,6 +4,7 @@
 #include <QList>
 
 class QAction;
+class QEvent;
 class QTableWidget;
 
 class KeybindingsDialog final : public QDialog
@@ -15,6 +16,7 @@ public:
 
 protected:
     void accept() override;
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     QList<QAction *> m_actions;

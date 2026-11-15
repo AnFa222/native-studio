@@ -4,9 +4,11 @@
 #include <QDialogButtonBox>
 #include <QHeaderView>
 #include <QKeySequenceEdit>
+#include <QScrollBar>
 #include <QSettings>
 #include <QTableWidget>
 #include <QVBoxLayout>
+#include <QWheelEvent>
 
 KeybindingsDialog::KeybindingsDialog(const QList<QAction *> &actions, QWidget *parent)
     : QDialog(parent), m_table(new QTableWidget(this))
@@ -25,6 +27,8 @@ KeybindingsDialog::KeybindingsDialog(const QList<QAction *> &actions, QWidget *p
     m_table->setColumnCount(2);
     m_table->setHorizontalHeaderLabels({tr("Command"), tr("Shortcut")});
     m_table->setRowCount(m_actions.size());
+    m_table->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    m_table->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
     m_table->horizontalHeader()->setStretchLastSection(true);
     m_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
     for (int row = 0; row < m_actions.size(); ++row) {
@@ -33,6 +37,7 @@ KeybindingsDialog::KeybindingsDialog(const QList<QAction *> &actions, QWidget *p
         m_table->setItem(row, 0, name);
         auto *editor = new QKeySequenceEdit(m_actions.at(row)->shortcut(), m_table);
         editor->setObjectName(QStringLiteral("keybinding.%1").arg(m_actions.at(row)->objectName()));
+        editor->installEventFilter(this);
         m_table->setCellWidget(row, 1, editor);
     }
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
@@ -41,6 +46,20 @@ KeybindingsDialog::KeybindingsDialog(const QList<QAction *> &actions, QWidget *p
     auto *layout = new QVBoxLayout(this);
     layout->addWidget(m_table);
     layout->addWidget(buttons);
+}
+
+bool KeybindingsDialog::eventFilter(QObject *watched, QEvent *event)
+{
+    if (event->type() == QEvent::Wheel && qobject_cast<QKeySequenceEdit *>(watched)) {
+        const auto *wheel = static_cast<QWheelEvent *>(event);
+        QScrollBar *scrollBar = m_table->verticalScrollBar();
+        const int pixelDelta = wheel->pixelDelta().y();
+        const int angleDelta = wheel->angleDelta().y();
+        const int distance = pixelDelta != 0 ? pixelDelta : angleDelta / 2;
+        scrollBar->setValue(scrollBar->value() - distance);
+        return true;
+    }
+    return QDialog::eventFilter(watched, event);
 }
 
 void KeybindingsDialog::accept()

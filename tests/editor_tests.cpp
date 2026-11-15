@@ -135,6 +135,7 @@ void EditorTests::startsWithOneUntitledEditor()
     MainWindow window;
     QCOMPARE(window.editorTabs()->count(), 1);
     QCOMPARE(window.editorTabs()->tabText(0), QStringLiteral("Untitled"));
+    QVERIFY(window.editorTabs()->isMovable());
     QVERIFY(window.projectTree() != nullptr);
     QVERIFY(window.languageManager()->languages().isEmpty());
     QVERIFY(window.extensionManager()->loadedExtensions().isEmpty());
@@ -302,11 +303,14 @@ void EditorTests::terminalRunsProgram()
     QVERIFY(window.terminal()->findChild<QWidget *>(QStringLiteral("terminalHeader")) == nullptr);
     auto *terminalView = window.terminal()->findChild<QPlainTextEdit *>(
         QStringLiteral("terminalOutput"));
-    auto *terminate = window.terminal()->findChild<QToolButton *>(
+    auto *terminate = window.findChild<QToolButton *>(
         QStringLiteral("terminateTerminalButton"));
     QVERIFY(terminalView != nullptr);
     QVERIFY(terminalView->styleSheet().contains(QStringLiteral("#ffffff")));
     QVERIFY(terminate != nullptr);
+    auto *terminalTabs = window.findChild<QTabWidget *>(QStringLiteral("terminalTabs"));
+    QVERIFY(terminalTabs != nullptr);
+    QCOMPARE(terminalTabs->cornerWidget(Qt::TopRightCorner), terminate);
     QVERIFY(window.findChild<QAction *>(QStringLiteral("preferencesAction")) != nullptr);
     QSignalSpy finished(window.terminal(), &TerminalWidget::commandFinished);
 #ifdef Q_OS_WIN
@@ -366,7 +370,7 @@ void EditorTests::terminalTerminatesRunningProgram()
     MainWindow window;
     window.loadServicesNow();
     const auto configuration = window.languageManager()->runConfiguration(path);
-    auto *terminate = window.terminal()->findChild<QToolButton *>(
+    auto *terminate = window.findChild<QToolButton *>(
         QStringLiteral("terminateTerminalButton"));
     QVERIFY(terminate != nullptr);
     QSignalSpy finished(window.terminal(), &TerminalWidget::commandFinished);
@@ -1037,11 +1041,14 @@ void EditorTests::nativeWorkspaceFeaturesAreLazyAndAvailable()
                               QStringLiteral("projectSearchAction"),
                               QStringLiteral("splitEditorAction"),
                               QStringLiteral("sourceControlAction"),
+                              QStringLiteral("toggleExplorerAction"),
                               QStringLiteral("keybindingsAction"),
                               QStringLiteral("newTerminalAction")})
         QVERIFY2(window.findChild<QAction *>(id) != nullptr, qPrintable(id));
     KeybindingsDialog keybindings(window.findChildren<QAction *>(), &window);
-    QVERIFY(keybindings.findChild<QTableWidget *>(QStringLiteral("keybindingsTable")) != nullptr);
+    auto *keybindingsTable = keybindings.findChild<QTableWidget *>(QStringLiteral("keybindingsTable"));
+    QVERIFY(keybindingsTable != nullptr);
+    QCOMPARE(keybindingsTable->verticalScrollBarPolicy(), Qt::ScrollBarAlwaysOn);
 
     window.openFile(path);
     const auto symbols = window.languageManager()->documentSymbols(

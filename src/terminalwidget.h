@@ -5,7 +5,6 @@
 class QEvent;
 class QPlainTextEdit;
 class QProcess;
-class QToolButton;
 
 class TerminalWidget final : public QWidget
 {
@@ -22,16 +21,20 @@ public:
     void executeProgram(const QString &program, const QStringList &arguments,
                         const QString &workingDirectory = {});
     [[nodiscard]] QString outputText() const;
+    [[nodiscard]] bool canTerminate() const;
+
+public slots:
+    void terminateActiveProcess();
 
 signals:
     void commandFinished(int exitCode);
+    void terminateAvailabilityChanged(bool available);
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private slots:
     void submitCurrentInput();
-    void terminateActiveProcess();
     void readShellOutput();
     void readRunnerOutput();
     void updateTerminateButton();
@@ -45,7 +48,6 @@ private:
     void moveCursorToInput();
 
     QPlainTextEdit *m_output = nullptr;
-    QToolButton *m_terminateButton = nullptr;
     QProcess *m_shell = nullptr;
     QProcess *m_runner = nullptr;
     QString m_workingDirectory;
