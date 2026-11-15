@@ -627,12 +627,16 @@ void EditorTests::settingsCenterIncludesCoreAndPluginPages()
         "extensions/settings/dev.nativestudio.code_tidy/python_indent_width");
     const QString gitPath = QStringLiteral(
         "extensions/settings/dev.nativestudio.git/git_path");
+    const QString githubCliPath = QStringLiteral(
+        "extensions/settings/dev.nativestudio.git/github_cli_path");
     SettingGuard formatGuard(formatPath);
     SettingGuard indentGuard(indentPath);
     SettingGuard gitGuard(gitPath);
+    SettingGuard githubCliGuard(githubCliPath);
     QSettings().remove(formatPath);
     QSettings().remove(indentPath);
     QSettings().remove(gitPath);
+    QSettings().remove(githubCliPath);
 
     MainWindow window;
     window.loadServicesNow();
@@ -665,6 +669,10 @@ void EditorTests::settingsCenterIncludesCoreAndPluginPages()
         QStringLiteral("extensionSetting.dev.nativestudio.git.git_path"));
     QVERIFY(gitExecutable != nullptr);
     QCOMPARE(gitExecutable->text(), QStringLiteral("git"));
+    auto *githubCli = dialog.findChild<QLineEdit *>(
+        QStringLiteral("extensionSetting.dev.nativestudio.git.github_cli_path"));
+    QVERIFY(githubCli != nullptr);
+    QCOMPARE(githubCli->text(), QStringLiteral("gh"));
 
     search->setText(QStringLiteral("interpreter"));
     int visibleCategories = 0;
@@ -1121,7 +1129,17 @@ void EditorTests::nativeWorkspaceFeaturesAreLazyAndAvailable()
     QVERIFY(gitAction != nullptr);
     QCOMPARE(gitAction->shortcut(), QKeySequence(QStringLiteral("Ctrl+Shift+G")));
     gitAction->trigger();
-    QVERIFY(window.findChild<QWidget *>(QStringLiteral("gitWidget")) != nullptr);
+    auto *gitWidget = window.findChild<QWidget *>(QStringLiteral("gitWidget"));
+    QVERIFY(gitWidget != nullptr);
+    QVERIFY(gitWidget->findChild<QPushButton *>(QStringLiteral("githubSignIn")) != nullptr);
+    QVERIFY(gitWidget->findChild<QPushButton *>(QStringLiteral("gitPull")) != nullptr);
+    QVERIFY(gitWidget->findChild<QPushButton *>(QStringLiteral("gitPush")) != nullptr);
+    for (const QString &command : {
+             QStringLiteral("dev.nativestudio.git.sign_in_github"),
+             QStringLiteral("dev.nativestudio.git.pull"),
+             QStringLiteral("dev.nativestudio.git.push")}) {
+        QVERIFY(window.extensionManager()->commandIds().contains(command));
+    }
 
     const auto extensions = window.extensionManager()->installedExtensions();
     const auto tidy = std::find_if(extensions.cbegin(), extensions.cend(), [](const auto &extension) {
@@ -1135,6 +1153,7 @@ void EditorTests::nativeWorkspaceFeaturesAreLazyAndAvailable()
     QVERIFY(git != extensions.cend());
     QVERIFY(git->bundled);
     QVERIFY(git->permissions.contains(QStringLiteral("ui.views")));
+    QVERIFY(git->permissions.contains(QStringLiteral("process.execute")));
 
     auto *editor = qobject_cast<CodeEditor *>(
         window.findChild<QTabWidget *>(QStringLiteral("secondaryEditorTabs"))->currentWidget());

@@ -1108,6 +1108,13 @@ void MainWindow::showGit()
         m_gitDock->setWidget(m_gitWidget);
         addDockWidget(Qt::LeftDockWidgetArea, m_gitDock);
         connect(m_gitWidget, &GitWidget::fileActivated, this, &MainWindow::openFile);
+        connect(m_gitWidget, &GitWidget::runInTerminalRequested, this,
+                [this](const QString &program, const QStringList &arguments,
+                       const QString &workingDirectory) {
+            m_terminalDock->show();
+            m_terminalDock->raise();
+            m_terminal->executeProgram(program, arguments, workingDirectory);
+        });
     }
     m_gitWidget->setRepositoryPath(m_projectDirectory);
     m_gitDock->show();

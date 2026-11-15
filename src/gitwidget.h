@@ -23,6 +23,8 @@ public:
 
 signals:
     void fileActivated(const QString &path);
+    void runInTerminalRequested(const QString &program, const QStringList &arguments,
+                                const QString &workingDirectory);
 
 private slots:
     void refresh();
@@ -30,13 +32,20 @@ private slots:
     void stageSelected();
     void unstageSelected();
     void commit();
+    void signInToGitHub();
+    void pull();
+    void push();
 
 private:
     void runGit(const QStringList &arguments, const std::function<void(const QString &)> &finished);
+    void refreshGitHubStatus();
+    [[nodiscard]] QString configuredGit() const;
+    [[nodiscard]] QString configuredGitHubCli() const;
     [[nodiscard]] QString selectedPath() const;
 
     QString m_rootPath;
     QLabel *m_branch = nullptr;
+    QLabel *m_githubAccount = nullptr;
     QTreeWidget *m_files = nullptr;
     QPlainTextEdit *m_diff = nullptr;
     QLineEdit *m_message = nullptr;

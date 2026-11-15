@@ -1,6 +1,8 @@
 #include "extension_api.h"
 
 #include <cstddef>
+#include <string>
+#include <string_view>
 
 namespace {
 template <size_t Size>
@@ -10,6 +12,25 @@ constexpr NsStringView view(const char (&text)[Size])
 }
 
 const NsHostApi *hostApi = nullptr;
+NsExtensionHandle extensionHandle = nullptr;
+
+NsStringView view(std::string_view text)
+{
+    return {text.data(), text.size()};
+}
+
+std::string setting(std::string_view key, std::string_view fallback)
+{
+    if (!hostApi || !hostApi->get_extension_setting || !extensionHandle)
+        return std::string(fallback);
+    const size_t required = hostApi->get_extension_setting(
+        hostApi->host_context, extensionHandle, view(key), nullptr, 0);
+    if (required == 0) return std::string(fallback);
+    std::string result(required, '\0');
+    hostApi->get_extension_setting(hostApi->host_context, extensionHandle, view(key),
+                                   result.data(), result.size());
+    return result;
+}
 
 void openSourceControl(void *, const NsCommandContext *)
 {
@@ -20,6 +41,44 @@ void openSourceControl(void *, const NsCommandContext *)
     }
 }
 
+void signInToGitHub(void *, const NsCommandContext *)
+{
+    if (!hostApi || !hostApi->run_process) return;
+    const std::string program = setting("github_cli_path", "gh");
+    const NsStringView arguments[]{
+        view("auth"), view("login"), view("--hostname"), view("github.com"),
+        view("--git-protocol"), view("https"), view("--web")
+    };
+    hostApi->run_process(hostApi->host_context, view(program), arguments,
+                         sizeof(arguments) / sizeof(arguments[0]), {nullptr, 0});
+}
+
+void runGitRemoteCommand(const NsCommandContext *context, std::string_view command)
+{
+    if (!hostApi || !hostApi->run_process || !context || context->project_root.size == 0) {
+        if (hostApi) hostApi->show_message(hostApi->host_context,
+            view("Open a project folder before running a Git command."), 3500);
+        return;
+    }
+    const std::string program = setting("git_path", "git");
+    const std::string root(context->project_root.data, context->project_root.size);
+    const std::string commandText(command);
+    const NsStringView arguments[]{view("-C"), view(root), view(commandText), view("--ff-only")};
+    const size_t argumentCount = command == "pull" ? 4 : 3;
+    hostApi->run_process(hostApi->host_context, view(program), arguments,
+                         argumentCount, view(root));
+}
+
+void pull(void *, const NsCommandContext *context)
+{
+    runGitRemoteCommand(context, "pull");
+}
+
+void push(void *, const NsCommandContext *context)
+{
+    runGitRemoteCommand(context, "push");
+}
+
 int32_t activate(void *, const NsHostApi *host, NsExtensionHandle extension)
 {
     const size_t requiredSize = offsetof(NsHostApi, show_view) + sizeof(host->show_view);
@@ -28,15 +87,19 @@ int32_t activate(void *, const NsHostApi *host, NsExtensionHandle extension)
         return -1;
     }
     hostApi = host;
+    extensionHandle = extension;
     const NsSettingSpec settings[]{
         {sizeof(NsSettingSpec), view("git_path"), view("Git executable"),
          view("Executable name or absolute path used for Git commands."),
-         NS_SETTING_TEXT, view("git"), 0, 0, nullptr, 0}
+         NS_SETTING_TEXT, view("git"), 0, 0, nullptr, 0},
+        {sizeof(NsSettingSpec), view("github_cli_path"), view("GitHub CLI executable"),
+         view("Executable name or absolute path to the official GitHub CLI."),
+         NS_SETTING_TEXT, view("gh"), 0, 0, nullptr, 0}
     };
     const NsSettingsPageSpec settingsPage{
         sizeof(NsSettingsPageSpec), view("Git"),
         view("Configure the bundled native Git integration."),
-        view("git source control executable path"), settings, 1
+        view("git github source control executable path login pull push"), settings, 2
     };
     const NsCommandSpec command{
         sizeof(NsCommandSpec),
@@ -47,15 +110,31 @@ int32_t activate(void *, const NsHostApi *host, NsExtensionHandle extension)
         &openSourceControl,
         nullptr
     };
+    const NsCommandSpec signInCommand{
+        sizeof(NsCommandSpec), view("dev.nativestudio.git.sign_in_github"),
+        view("Sign in to GitHub"), view("Git"), {nullptr, 0}, &signInToGitHub, nullptr
+    };
+    const NsCommandSpec pullCommand{
+        sizeof(NsCommandSpec), view("dev.nativestudio.git.pull"),
+        view("Pull"), view("Git"), {nullptr, 0}, &pull, nullptr
+    };
+    const NsCommandSpec pushCommand{
+        sizeof(NsCommandSpec), view("dev.nativestudio.git.push"),
+        view("Push"), view("Git"), {nullptr, 0}, &push, nullptr
+    };
     host->log(host->host_context, NS_LOG_INFO, view("Activated bundled Git extension"));
     if (host->register_settings_page
         && !host->register_settings_page(host->host_context, extension, &settingsPage)) return -1;
-    return host->register_command(host->host_context, extension, &command) ? 0 : -1;
+    return host->register_command(host->host_context, extension, &command)
+        && host->register_command(host->host_context, extension, &signInCommand)
+        && host->register_command(host->host_context, extension, &pullCommand)
+        && host->register_command(host->host_context, extension, &pushCommand) ? 0 : -1;
 }
 
 void deactivate(void *)
 {
     hostApi = nullptr;
+    extensionHandle = nullptr;
 }
 
 const NsExtensionDescriptor descriptor{
@@ -63,7 +142,7 @@ const NsExtensionDescriptor descriptor{
     NS_EXTENSION_ABI_VERSION,
     view("dev.nativestudio.git"),
     view("Git"),
-    view("1.0.0"),
+    view("1.1.0"),
     nullptr,
     &activate,
     &deactivate
