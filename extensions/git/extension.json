@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "dev.nativestudio.git",
   "name": "Git",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "abiVersion": 1,
   "description": "Native Git and GitHub source control with restore, staging, branches, history, stash, clone, sign-in, pull, and push.",
   "author": "Native Studio",

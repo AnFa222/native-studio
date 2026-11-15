@@ -1,27 +1,141 @@
 #include "gitwidget.h"
 
+#include <QAction>
 #include <QDir>
 #include <QDesktopServices>
 #include <QFileDialog>
 #include <QFileInfo>
-#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QInputDialog>
 #include <QLineEdit>
+#include <QMenu>
 #include <QMessageBox>
+#include <QPainter>
+#include <QPainterPath>
+#include <QPaintEvent>
 #include <QPlainTextEdit>
 #include <QProcess>
-#include <QPushButton>
 #include <QSettings>
+#include <QToolButton>
 #include <QTreeWidget>
 #include <QVBoxLayout>
+
+namespace {
+enum class GitIcon {
+    Refresh, Pull, Push, Branch, Stage, Unstage, Restore, StageAll, UnstageAll, Commit, More
+};
+
+class GitToolButton final : public QToolButton
+{
+public:
+    GitToolButton(GitIcon icon, const QString &label, QWidget *parent)
+        : QToolButton(parent), m_icon(icon)
+    {
+        setToolTip(label);
+        setAccessibleName(label);
+        setAutoRaise(true);
+        setFixedSize(26, 26);
+        setCursor(Qt::ArrowCursor);
+    }
+
+protected:
+    void paintEvent(QPaintEvent *event) override
+    {
+        QToolButton::paintEvent(event);
+        Q_UNUSED(event);
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        QColor color = palette().color(isEnabled() ? QPalette::Active
+                                                    : QPalette::Disabled,
+                                       QPalette::ButtonText);
+        QPen pen(color, 1.55, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+        painter.setPen(pen);
+        painter.setBrush(Qt::NoBrush);
+        const QPointF c = rect().center();
+        const auto line = [&painter](qreal x1, qreal y1, qreal x2, qreal y2) {
+            painter.drawLine(QPointF(x1, y1), QPointF(x2, y2));
+        };
+        switch (m_icon) {
+        case GitIcon::Refresh:
+            painter.drawArc(QRectF(c.x() - 6, c.y() - 6, 12, 12), 35 * 16, 285 * 16);
+            line(c.x() + 4, c.y() - 6, c.x() + 7, c.y() - 6);
+            line(c.x() + 7, c.y() - 6, c.x() + 7, c.y() - 3);
+            break;
+        case GitIcon::Pull:
+        case GitIcon::Push: {
+            const bool up = m_icon == GitIcon::Push;
+            const qreal tip = c.y() + (up ? -6 : 6);
+            const qreal tail = c.y() + (up ? 4 : -4);
+            line(c.x(), tail, c.x(), tip);
+            line(c.x(), tip, c.x() - 3.5, tip + (up ? 3.5 : -3.5));
+            line(c.x(), tip, c.x() + 3.5, tip + (up ? 3.5 : -3.5));
+            line(c.x() - 6, c.y() + (up ? 6 : -6), c.x() + 6, c.y() + (up ? 6 : -6));
+            break;
+        }
+        case GitIcon::Branch:
+            painter.drawEllipse(QPointF(c.x() - 4, c.y() - 5), 1.7, 1.7);
+            painter.drawEllipse(QPointF(c.x() + 4, c.y() - 1), 1.7, 1.7);
+            painter.drawEllipse(QPointF(c.x() - 4, c.y() + 5), 1.7, 1.7);
+            line(c.x() - 4, c.y() - 3.2, c.x() - 4, c.y() + 3.2);
+            painter.drawPath([&] { QPainterPath p; p.moveTo(c.x() - 4, c.y() + 1);
+                p.cubicTo(c.x() - 4, c.y() - 1, c.x() + 4, c.y() + 1, c.x() + 4, c.y() - 1); return p; }());
+            break;
+        case GitIcon::Stage:
+        case GitIcon::Unstage:
+            line(c.x() - 5, c.y(), c.x() + 5, c.y());
+            if (m_icon == GitIcon::Stage) line(c.x(), c.y() - 5, c.x(), c.y() + 5);
+            break;
+        case GitIcon::Restore:
+            painter.drawArc(QRectF(c.x() - 5, c.y() - 5, 11, 11), 65 * 16, 255 * 16);
+            line(c.x() - 6, c.y() - 5, c.x() - 6, c.y());
+            line(c.x() - 6, c.y() - 5, c.x() - 1, c.y() - 5);
+            break;
+        case GitIcon::StageAll:
+        case GitIcon::UnstageAll:
+            line(c.x() - 6, c.y() - 4, c.x() + 2, c.y() - 4);
+            line(c.x() - 6, c.y(), c.x() + 2, c.y());
+            line(c.x() - 6, c.y() + 4, c.x() + 2, c.y() + 4);
+            line(c.x() + 5, c.y() - 3, c.x() + 5, c.y() + 3);
+            if (m_icon == GitIcon::StageAll) line(c.x() + 2, c.y(), c.x() + 8, c.y());
+            break;
+        case GitIcon::Commit:
+            line(c.x() - 6, c.y(), c.x() - 2, c.y() + 4);
+            line(c.x() - 2, c.y() + 4, c.x() + 6, c.y() - 5);
+            break;
+        case GitIcon::More:
+            painter.setBrush(color);
+            for (int offset : {-5, 0, 5}) painter.drawEllipse(QPointF(c.x() + offset, c.y()), 1.2, 1.2);
+            break;
+        }
+    }
+
+private:
+    GitIcon m_icon;
+};
+
+GitToolButton *makeGitButton(QWidget *parent, GitIcon icon, const QString &label,
+                             const char *objectName)
+{
+    auto *button = new GitToolButton(icon, label, parent);
+    button->setObjectName(QString::fromLatin1(objectName));
+    return button;
+}
+
+QAction *addRepositoryAction(QMenu *menu, const QString &text, const char *objectName)
+{
+    QAction *action = menu->addAction(text);
+    action->setObjectName(QString::fromLatin1(objectName));
+    return action;
+}
+}
 
 GitWidget::GitWidget(QWidget *parent)
     : QWidget(parent), m_branch(new QLabel(tr("No repository"), this))
     , m_githubAccount(new QLabel(tr("GitHub: Not signed in"), this))
     , m_files(new QTreeWidget(this)), m_diff(new QPlainTextEdit(this))
-    , m_message(new QLineEdit(this)), m_commit(new QPushButton(tr("Commit"), this))
+    , m_message(new QLineEdit(this))
+    , m_commit(makeGitButton(this, GitIcon::Commit, tr("Commit staged changes"), "gitCommit"))
 {
     setObjectName(QStringLiteral("gitWidget"));
     m_branch->setObjectName(QStringLiteral("gitBranch"));
@@ -32,84 +146,89 @@ GitWidget::GitWidget(QWidget *parent)
     m_files->setHeaderLabels({tr("Status"), tr("File")});
     m_diff->setReadOnly(true);
     m_message->setPlaceholderText(tr("Commit message"));
-    auto *refreshButton = new QPushButton(tr("Refresh"), this);
-    auto *signInButton = new QPushButton(tr("Sign in to GitHub"), this);
-    auto *pullButton = new QPushButton(tr("Pull"), this);
-    auto *pushButton = new QPushButton(tr("Push"), this);
-    signInButton->setObjectName(QStringLiteral("githubSignIn"));
-    pullButton->setObjectName(QStringLiteral("gitPull"));
-    pushButton->setObjectName(QStringLiteral("gitPush"));
-    auto *stageButton = new QPushButton(tr("Stage"), this);
-    auto *unstageButton = new QPushButton(tr("Unstage"), this);
-    auto *restoreButton = new QPushButton(tr("Restore"), this);
-    auto *stageAllButton = new QPushButton(tr("Stage All"), this);
-    auto *unstageAllButton = new QPushButton(tr("Unstage All"), this);
-    restoreButton->setObjectName(QStringLiteral("gitRestore"));
-    stageAllButton->setObjectName(QStringLiteral("gitStageAll"));
-    unstageAllButton->setObjectName(QStringLiteral("gitUnstageAll"));
+    m_message->setClearButtonEnabled(true);
+    auto *refreshButton = makeGitButton(this, GitIcon::Refresh, tr("Refresh source control"), "gitRefresh");
+    auto *pullButton = makeGitButton(this, GitIcon::Pull, tr("Pull from remote"), "gitPull");
+    auto *pushButton = makeGitButton(this, GitIcon::Push, tr("Push to remote"), "gitPush");
+    auto *switchBranchButton = makeGitButton(this, GitIcon::Branch, tr("Switch branch"), "gitSwitchBranch");
+    auto *stageButton = makeGitButton(this, GitIcon::Stage, tr("Stage selected file"), "gitStage");
+    auto *unstageButton = makeGitButton(this, GitIcon::Unstage, tr("Unstage selected file"), "gitUnstage");
+    auto *restoreButton = makeGitButton(this, GitIcon::Restore, tr("Discard changes in selected file"), "gitRestore");
+    auto *stageAllButton = makeGitButton(this, GitIcon::StageAll, tr("Stage all changes"), "gitStageAll");
+    auto *unstageAllButton = makeGitButton(this, GitIcon::UnstageAll, tr("Unstage all changes"), "gitUnstageAll");
+    auto *moreButton = makeGitButton(this, GitIcon::More, tr("More Git actions"), "gitMoreActions");
+    auto *moreMenu = new QMenu(moreButton);
+    QAction *fetchAction = addRepositoryAction(moreMenu, tr("Fetch from Remote"), "gitFetch");
+    QAction *historyAction = addRepositoryAction(moreMenu, tr("View History"), "gitHistory");
+    moreMenu->addSeparator();
+    QAction *stashAction = addRepositoryAction(moreMenu, tr("Stash Changes"), "gitStash");
+    QAction *stashPopAction = addRepositoryAction(moreMenu, tr("Pop Latest Stash"), "gitStashPop");
+    moreMenu->addSeparator();
+    QAction *createBranchAction = addRepositoryAction(moreMenu, tr("Create Branch…"), "gitCreateBranch");
+    QAction *initAction = addRepositoryAction(moreMenu, tr("Initialize Repository"), "gitInit");
+    QAction *cloneAction = addRepositoryAction(moreMenu, tr("Clone Repository…"), "gitClone");
+    moreMenu->addSeparator();
+    QAction *signInAction = addRepositoryAction(moreMenu, tr("Sign in to GitHub"), "githubSignIn");
+    QAction *openGitHubAction = addRepositoryAction(moreMenu, tr("Open Repository on GitHub"), "gitOpenGitHub");
+    moreButton->setMenu(moreMenu);
+    moreButton->setPopupMode(QToolButton::InstantPopup);
+
     auto *top = new QHBoxLayout;
+    top->setContentsMargins(2, 0, 0, 0);
+    top->setSpacing(1);
     top->addWidget(m_branch, 1);
+    top->addWidget(switchBranchButton);
+    top->addWidget(pullButton);
+    top->addWidget(pushButton);
     top->addWidget(refreshButton);
-    auto *remoteActions = new QHBoxLayout;
-    remoteActions->addWidget(m_githubAccount);
-    remoteActions->addStretch();
-    remoteActions->addWidget(signInButton);
-    remoteActions->addWidget(pullButton);
-    remoteActions->addWidget(pushButton);
-    auto *actions = new QHBoxLayout;
-    actions->addWidget(stageButton);
-    actions->addWidget(unstageButton);
-    actions->addWidget(restoreButton);
-    actions->addWidget(stageAllButton);
-    actions->addWidget(unstageAllButton);
-    actions->addStretch();
-    auto *repositoryActions = new QGridLayout;
-    const QList<QPair<QString, const char *>> repositoryButtons{
-        {tr("Fetch"), "gitFetch"}, {tr("History"), "gitHistory"},
-        {tr("Stash"), "gitStash"}, {tr("Pop Stash"), "gitStashPop"},
-        {tr("New Branch"), "gitCreateBranch"}, {tr("Switch Branch"), "gitSwitchBranch"},
-        {tr("Init"), "gitInit"}, {tr("Clone"), "gitClone"},
-        {tr("Open on GitHub"), "gitOpenGitHub"}
-    };
-    QList<QPushButton *> extraButtons;
-    for (const auto &[text, name] : repositoryButtons) {
-        auto *button = new QPushButton(text, this);
-        button->setObjectName(QString::fromLatin1(name));
-        const int index = extraButtons.size();
-        repositoryActions->addWidget(button, index / 3, index % 3);
-        extraButtons.push_back(button);
-    }
+    top->addWidget(moreButton);
+    m_githubAccount->setObjectName(QStringLiteral("gitAccountStatus"));
+    m_githubAccount->setContentsMargins(4, 0, 0, 2);
+    auto *changes = new QHBoxLayout;
+    changes->setContentsMargins(4, 2, 0, 0);
+    changes->setSpacing(1);
+    auto *changesLabel = new QLabel(tr("CHANGES"), this);
+    changesLabel->setObjectName(QStringLiteral("gitSectionLabel"));
+    changes->addWidget(changesLabel);
+    changes->addStretch();
+    changes->addWidget(stageButton);
+    changes->addWidget(unstageButton);
+    changes->addWidget(restoreButton);
+    changes->addWidget(stageAllButton);
+    changes->addWidget(unstageAllButton);
     auto *commitRow = new QHBoxLayout;
+    commitRow->setSpacing(2);
     commitRow->addWidget(m_message, 1);
     commitRow->addWidget(m_commit);
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(6, 6, 6, 6);
+    layout->setSpacing(4);
     layout->addLayout(top);
-    layout->addLayout(remoteActions);
+    layout->addWidget(m_githubAccount);
+    layout->addLayout(changes);
     layout->addWidget(m_files, 1);
-    layout->addLayout(actions);
-    layout->addLayout(repositoryActions);
     layout->addWidget(m_diff, 1);
     layout->addLayout(commitRow);
-    connect(refreshButton, &QPushButton::clicked, this, &GitWidget::refresh);
-    connect(signInButton, &QPushButton::clicked, this, &GitWidget::signInToGitHub);
-    connect(pullButton, &QPushButton::clicked, this, &GitWidget::pull);
-    connect(pushButton, &QPushButton::clicked, this, &GitWidget::push);
-    connect(stageButton, &QPushButton::clicked, this, &GitWidget::stageSelected);
-    connect(unstageButton, &QPushButton::clicked, this, &GitWidget::unstageSelected);
-    connect(restoreButton, &QPushButton::clicked, this, &GitWidget::restoreSelected);
-    connect(stageAllButton, &QPushButton::clicked, this, &GitWidget::stageAll);
-    connect(unstageAllButton, &QPushButton::clicked, this, &GitWidget::unstageAll);
-    connect(extraButtons.at(0), &QPushButton::clicked, this, &GitWidget::fetch);
-    connect(extraButtons.at(1), &QPushButton::clicked, this, &GitWidget::showHistory);
-    connect(extraButtons.at(2), &QPushButton::clicked, this, &GitWidget::stash);
-    connect(extraButtons.at(3), &QPushButton::clicked, this, &GitWidget::stashPop);
-    connect(extraButtons.at(4), &QPushButton::clicked, this, &GitWidget::createBranch);
-    connect(extraButtons.at(5), &QPushButton::clicked, this, &GitWidget::switchBranch);
-    connect(extraButtons.at(6), &QPushButton::clicked, this, &GitWidget::initializeRepository);
-    connect(extraButtons.at(7), &QPushButton::clicked, this, &GitWidget::cloneRepository);
-    connect(extraButtons.at(8), &QPushButton::clicked, this, &GitWidget::openOnGitHub);
-    connect(m_commit, &QPushButton::clicked, this, &GitWidget::commit);
+    connect(refreshButton, &QToolButton::clicked, this, &GitWidget::refresh);
+    connect(pullButton, &QToolButton::clicked, this, &GitWidget::pull);
+    connect(pushButton, &QToolButton::clicked, this, &GitWidget::push);
+    connect(switchBranchButton, &QToolButton::clicked, this, &GitWidget::switchBranch);
+    connect(stageButton, &QToolButton::clicked, this, &GitWidget::stageSelected);
+    connect(unstageButton, &QToolButton::clicked, this, &GitWidget::unstageSelected);
+    connect(restoreButton, &QToolButton::clicked, this, &GitWidget::restoreSelected);
+    connect(stageAllButton, &QToolButton::clicked, this, &GitWidget::stageAll);
+    connect(unstageAllButton, &QToolButton::clicked, this, &GitWidget::unstageAll);
+    connect(fetchAction, &QAction::triggered, this, &GitWidget::fetch);
+    connect(historyAction, &QAction::triggered, this, &GitWidget::showHistory);
+    connect(stashAction, &QAction::triggered, this, &GitWidget::stash);
+    connect(stashPopAction, &QAction::triggered, this, &GitWidget::stashPop);
+    connect(createBranchAction, &QAction::triggered, this, &GitWidget::createBranch);
+    connect(initAction, &QAction::triggered, this, &GitWidget::initializeRepository);
+    connect(cloneAction, &QAction::triggered, this, &GitWidget::cloneRepository);
+    connect(signInAction, &QAction::triggered, this, &GitWidget::signInToGitHub);
+    connect(openGitHubAction, &QAction::triggered, this, &GitWidget::openOnGitHub);
+    connect(m_commit, &QToolButton::clicked, this, &GitWidget::commit);
+    connect(m_message, &QLineEdit::returnPressed, this, &GitWidget::commit);
     connect(m_files, &QTreeWidget::itemClicked, this, [this](QTreeWidgetItem *item) { showDiff(item); });
     connect(m_files, &QTreeWidget::itemActivated, this, [this](QTreeWidgetItem *item) {
         if (item) emit fileActivated(QDir(m_rootPath).filePath(item->data(0, Qt::UserRole).toString()));

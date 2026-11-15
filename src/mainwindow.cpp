@@ -668,6 +668,7 @@ void MainWindow::applyTheme()
             QDockWidget#projectExplorerDock QWidget { background: #f6f8fa; }
             QToolButton { color: #24292f; background: transparent; border: 0; border-radius: 4px; }
             QToolButton:hover { background: #d0d7de; }
+            QLabel#gitAccountStatus, QLabel#gitSectionLabel { color: #57606a; font-size: 10px; font-weight: 600; }
             QToolButton#editorTabCloseButton { color: #57606a; background: transparent; border: 0; border-radius: 3px; padding: 0; font-size: 15px; font-weight: 400; }
             QToolButton#editorTabCloseButton:hover { color: #24292f; background: #d0d7de; }
             QDockWidget#terminalDock QToolButton#terminateTerminalButton { background: #cf222e; border: 0; border-radius: 3px; padding: 0; }
@@ -704,6 +705,7 @@ void MainWindow::applyTheme()
         QToolButton { color: #c9d1d9; background: transparent; border: 0; border-radius: 4px; }
         QToolButton:hover { background: #30363d; color: #ffffff; }
         QToolButton:pressed { background: #1f6feb; }
+        QLabel#gitAccountStatus, QLabel#gitSectionLabel { color: #8b949e; font-size: 10px; font-weight: 600; }
         QToolButton#editorTabCloseButton { color: #8b949e; background: transparent; border: 0; border-radius: 3px; padding: 0; font-size: 15px; font-weight: 400; }
         QToolButton#editorTabCloseButton:hover { color: #ffffff; background: #30363d; }
         QToolButton#editorTabCloseButton:pressed { color: #ffffff; background: #484f58; }

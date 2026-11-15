@@ -1129,16 +1129,21 @@ void EditorTests::nativeWorkspaceFeaturesAreLazyAndAvailable()
     gitAction->trigger();
     auto *gitWidget = window.findChild<QWidget *>(QStringLiteral("gitWidget"));
     QVERIFY(gitWidget != nullptr);
-    QVERIFY(gitWidget->findChild<QPushButton *>(QStringLiteral("githubSignIn")) != nullptr);
-    QVERIFY(gitWidget->findChild<QPushButton *>(QStringLiteral("gitPull")) != nullptr);
-    QVERIFY(gitWidget->findChild<QPushButton *>(QStringLiteral("gitPush")) != nullptr);
-    for (const QString &button : {QStringLiteral("gitRestore"), QStringLiteral("gitStageAll"),
-                                  QStringLiteral("gitUnstageAll"), QStringLiteral("gitFetch"),
+    for (const QString &button : {QStringLiteral("gitPull"), QStringLiteral("gitPush"),
+                                  QStringLiteral("gitRestore"), QStringLiteral("gitStageAll"),
+                                  QStringLiteral("gitUnstageAll"), QStringLiteral("gitSwitchBranch"),
+                                  QStringLiteral("gitCommit"), QStringLiteral("gitMoreActions")}) {
+        auto *toolButton = gitWidget->findChild<QToolButton *>(button);
+        QVERIFY2(toolButton != nullptr, qPrintable(button));
+        QVERIFY2(toolButton->text().isEmpty(), qPrintable(button));
+        QVERIFY2(toolButton->width() <= 28, qPrintable(button));
+    }
+    for (const QString &action : {QStringLiteral("githubSignIn"), QStringLiteral("gitFetch"),
                                   QStringLiteral("gitHistory"), QStringLiteral("gitStash"),
                                   QStringLiteral("gitStashPop"), QStringLiteral("gitCreateBranch"),
-                                  QStringLiteral("gitSwitchBranch"), QStringLiteral("gitInit"),
-                                  QStringLiteral("gitClone"), QStringLiteral("gitOpenGitHub")})
-        QVERIFY2(gitWidget->findChild<QPushButton *>(button) != nullptr, qPrintable(button));
+                                  QStringLiteral("gitInit"), QStringLiteral("gitClone"),
+                                  QStringLiteral("gitOpenGitHub")})
+        QVERIFY2(gitWidget->findChild<QAction *>(action) != nullptr, qPrintable(action));
     for (const QString &command : {
              QStringLiteral("dev.nativestudio.git.sign_in_github"),
              QStringLiteral("dev.nativestudio.git.pull"),
@@ -1195,9 +1200,9 @@ void EditorTests::gitHubSignInUsesCredentialManager()
     QSettings().remove(gitPath);
     GitWidget widget;
     QSignalSpy requested(&widget, &GitWidget::runInTerminalRequested);
-    auto *signIn = widget.findChild<QPushButton *>(QStringLiteral("githubSignIn"));
+    auto *signIn = widget.findChild<QAction *>(QStringLiteral("githubSignIn"));
     QVERIFY(signIn != nullptr);
-    signIn->click();
+    signIn->trigger();
     QCOMPARE(requested.size(), 1);
     const QList<QVariant> arguments = requested.takeFirst();
     QCOMPARE(arguments.at(0).toString(), QStringLiteral("git"));

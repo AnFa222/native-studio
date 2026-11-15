@@ -8,7 +8,7 @@ class QLabel;
 class QLineEdit;
 class QPlainTextEdit;
 class QProcess;
-class QPushButton;
+class QToolButton;
 class QTreeWidget;
 class QTreeWidgetItem;
 
@@ -60,5 +60,5 @@ private:
     QTreeWidget *m_files = nullptr;
     QPlainTextEdit *m_diff = nullptr;
     QLineEdit *m_message = nullptr;
-    QPushButton *m_commit = nullptr;
+    QToolButton *m_commit = nullptr;
 };
