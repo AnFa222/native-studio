@@ -597,7 +597,6 @@ void MainWindow::applyTheme()
         QTreeView::item { height: 22px; border: 0; }
         QTreeView::item:hover:!selected { background: #21262d; color: #ffffff; }
         QTreeView::item:selected { background: #1f6feb; color: #ffffff; }
-        QTreeView::branch { background: #161b22; }
         QTabWidget::pane { background: #0d1117; border: 0; }
         QTabBar { background: #161b22; }
         QTabBar::tab { background: #161b22; color: #8b949e; padding: 5px 10px; border-right: 1px solid #30363d; border-bottom: 1px solid #30363d; }
