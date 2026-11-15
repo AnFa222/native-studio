@@ -52,6 +52,41 @@ typedef struct NsEventContext {
 
 typedef void (*NsEventCallback)(void *user_data, const NsEventContext *context);
 
+typedef enum NsSettingType {
+    NS_SETTING_BOOLEAN = 1,
+    NS_SETTING_INTEGER = 2,
+    NS_SETTING_TEXT = 3,
+    NS_SETTING_CHOICE = 4
+} NsSettingType;
+
+typedef struct NsSettingChoice {
+    uint32_t struct_size;
+    NsStringView value;
+    NsStringView label;
+} NsSettingChoice;
+
+typedef struct NsSettingSpec {
+    uint32_t struct_size;
+    NsStringView key;
+    NsStringView label;
+    NsStringView description;
+    uint32_t type;
+    NsStringView default_value;
+    int64_t minimum;
+    int64_t maximum;
+    const NsSettingChoice *choices;
+    size_t choice_count;
+} NsSettingSpec;
+
+typedef struct NsSettingsPageSpec {
+    uint32_t struct_size;
+    NsStringView title;
+    NsStringView description;
+    NsStringView keywords;
+    const NsSettingSpec *settings;
+    size_t setting_count;
+} NsSettingsPageSpec;
+
 typedef struct NsCommandSpec {
     uint32_t struct_size;
     NsStringView id;
@@ -81,6 +116,10 @@ typedef struct NsHostApi {
                                        uint32_t event_type, NsEventCallback callback,
                                        void *user_data);
     size_t (*get_active_document_text)(void *host_context, char *buffer, size_t capacity);
+    int32_t (*register_settings_page)(void *host_context, NsExtensionHandle extension,
+                                      const NsSettingsPageSpec *page);
+    size_t (*get_extension_setting)(void *host_context, NsExtensionHandle extension,
+                                    NsStringView key, char *buffer, size_t capacity);
 } NsHostApi;
 
 typedef int32_t (*NsActivateCallback)(void *extension_context, const NsHostApi *host,

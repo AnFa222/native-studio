@@ -14,7 +14,10 @@
 #include <QFileSystemModel>
 #include <QCompleter>
 #include <QComboBox>
+#include <QCheckBox>
+#include <QDialogButtonBox>
 #include <QDir>
+#include <QSpinBox>
 #include <QTabWidget>
 #include <QTemporaryDir>
 #include <QSignalSpy>
@@ -514,6 +517,49 @@ void EditorTests::codeTidyFormatsDocumentAndSave()
     QString savedText = QString::fromUtf8(saved.readAll());
     savedText.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
     QCOMPARE(savedText, QStringLiteral("    int saved = 2;\n"));
+
+    const QString pythonPath = directory.filePath(QStringLiteral("tidy.py"));
+    QFile pythonSeed(pythonPath);
+    QVERIFY(pythonSeed.open(QIODevice::WriteOnly));
+    pythonSeed.write("pass\n");
+    pythonSeed.close();
+    window.openFile(pythonPath);
+    auto *pythonEditor = qobject_cast<CodeEditor *>(window.editorTabs()->currentWidget());
+    QVERIFY(pythonEditor != nullptr);
+    pythonEditor->setPlainText(QStringLiteral(
+        "import os\n"
+        "from . import helper\n"
+        "@decorator\n"
+        "def greet( name:str=\"world\",age=1 ):\n"
+        " print( \"hello\",name )\n"
+        " if(age>0):\n"
+        "  return [{\"age\":age,\"name\":name}]\n"
+        "class Person:\n"
+        " def speak( self ):\n"
+        "  \"\"\"keep   this\n"
+        " literal   spacing\n"
+        "  \"\"\"\n"
+        "  return \"ok\"\n"));
+    formatAction->trigger();
+    QCOMPARE(pythonEditor->toPlainText(), QStringLiteral(
+        "import os\n"
+        "from . import helper\n"
+        "\n"
+        "\n"
+        "@decorator\n"
+        "def greet(name: str = \"world\", age=1):\n"
+        "    print(\"hello\", name)\n"
+        "    if (age > 0):\n"
+        "        return [{\"age\": age, \"name\": name}]\n"
+        "\n"
+        "\n"
+        "class Person:\n"
+        "\n"
+        "    def speak(self):\n"
+        "        \"\"\"keep   this\n"
+        " literal   spacing\n"
+        "  \"\"\"\n"
+        "        return \"ok\"\n"));
 }
 
 void EditorTests::extensionManagerShowsManifestControls()
@@ -551,6 +597,16 @@ void EditorTests::extensionManagerShowsManifestControls()
 
 void EditorTests::settingsCenterIncludesCoreAndPluginPages()
 {
+    ApplicationSettingsGuard applicationSettings;
+    const QString formatPath = QStringLiteral(
+        "extensions/settings/dev.nativestudio.code_tidy/format_on_save");
+    const QString indentPath = QStringLiteral(
+        "extensions/settings/dev.nativestudio.code_tidy/python_indent_width");
+    SettingGuard formatGuard(formatPath);
+    SettingGuard indentGuard(indentPath);
+    QSettings().remove(formatPath);
+    QSettings().remove(indentPath);
+
     MainWindow window;
     window.loadServicesNow();
     SettingsDialog dialog(window.languageManager(), window.extensionManager());
@@ -569,12 +625,29 @@ void EditorTests::settingsCenterIncludesCoreAndPluginPages()
     QVERIFY(dialog.findChild<QWidget *>(QStringLiteral("pythonSettingsPage")) != nullptr);
     QVERIFY(dialog.findChild<QPushButton *>(QStringLiteral("selectPythonInterpreter")) != nullptr);
     QVERIFY(dialog.findChild<QWidget *>(QStringLiteral("terminalFollowThemeSetting")) != nullptr);
+    QVERIFY(dialog.findChild<QWidget *>(
+        QStringLiteral("extensionSettingsPage.dev.nativestudio.code_tidy")) != nullptr);
+    auto *formatOnSave = dialog.findChild<QCheckBox *>(
+        QStringLiteral("extensionSetting.dev.nativestudio.code_tidy.format_on_save"));
+    QVERIFY(formatOnSave != nullptr);
+    auto *pythonIndent = dialog.findChild<QSpinBox *>(
+        QStringLiteral("extensionSetting.dev.nativestudio.code_tidy.python_indent_width"));
+    QVERIFY(pythonIndent != nullptr);
+    QCOMPARE(pythonIndent->value(), 4);
 
     search->setText(QStringLiteral("interpreter"));
     int visibleCategories = 0;
     for (int index = 0; index < categories->count(); ++index)
         visibleCategories += categories->item(index)->isHidden() ? 0 : 1;
     QCOMPARE(visibleCategories, 1);
+
+    formatOnSave->setChecked(false);
+    pythonIndent->setValue(2);
+    auto *buttons = dialog.findChild<QDialogButtonBox *>();
+    QVERIFY(buttons != nullptr);
+    buttons->button(QDialogButtonBox::Ok)->click();
+    QCOMPARE(QSettings().value(formatPath).toString(), QStringLiteral("false"));
+    QCOMPARE(QSettings().value(indentPath).toString(), QStringLiteral("2"));
 }
 
 void EditorTests::lightThemeUsesDarkText()

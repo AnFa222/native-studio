@@ -2,6 +2,9 @@
 
 #include <QColor>
 #include <QDialog>
+#include <QList>
+
+#include <functional>
 
 class ExtensionManager;
 class LanguageManager;
@@ -53,4 +56,6 @@ private:
     QPushButton *m_terminalBackgroundButton = nullptr;
     QColor m_terminalForeground;
     QColor m_terminalBackground;
+    QList<std::function<void()>> m_extensionSettingsApply;
+    QList<std::function<void()>> m_extensionSettingsRestore;
 };

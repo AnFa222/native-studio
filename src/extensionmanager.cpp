@@ -3,22 +3,29 @@
 #include "mainwindow.h"
 
 #include <QAction>
+#include <QCheckBox>
+#include <QComboBox>
 #include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QFormLayout>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QKeySequence>
+#include <QLabel>
+#include <QLineEdit>
 #include <QLibrary>
 #include <QMenu>
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QSettings>
 #include <QSet>
+#include <QSpinBox>
 #include <QStandardPaths>
 #include <QTimer>
+#include <QVBoxLayout>
 
 #include <algorithm>
 #include <cstddef>
@@ -49,6 +56,26 @@ struct ExtensionManager::RegisteredEvent
     void *userData = nullptr;
 };
 
+struct ExtensionManager::RegisteredSettingsPage
+{
+    struct Setting {
+        QString key;
+        QString label;
+        QString description;
+        uint32_t type = 0;
+        QString defaultValue;
+        int minimum = 0;
+        int maximum = 0;
+        QList<QPair<QString, QString>> choices;
+    };
+
+    LoadedExtension *owner = nullptr;
+    QString title;
+    QString description;
+    QStringList keywords;
+    QList<Setting> settings;
+};
+
 ExtensionManager::ExtensionManager(MainWindow *window, QMenu *extensionsMenu, QObject *parent)
     : QObject(parent), m_window(window), m_extensionsMenu(extensionsMenu)
 {
@@ -64,6 +91,8 @@ ExtensionManager::ExtensionManager(MainWindow *window, QMenu *extensionsMenu, QO
     m_hostApi.run_process = &ExtensionManager::hostRunProcess;
     m_hostApi.register_event_listener = &ExtensionManager::hostRegisterEventListener;
     m_hostApi.get_active_document_text = &ExtensionManager::hostGetActiveDocumentText;
+    m_hostApi.register_settings_page = &ExtensionManager::hostRegisterSettingsPage;
+    m_hostApi.get_extension_setting = &ExtensionManager::hostGetExtensionSetting;
 }
 
 ExtensionManager::~ExtensionManager()
@@ -282,6 +311,7 @@ bool ExtensionManager::loadManifest(const QString &manifestPath, bool bundled)
     if (activationResult != 0) {
         removeCommands(handle);
         removeEvents(handle);
+        removeSettingsPages(handle);
         if (descriptor->deactivate) {
             try {
                 descriptor->deactivate(descriptor->extension_context);
@@ -374,6 +404,7 @@ void ExtensionManager::shutdown()
         LoadedExtension *extension = iterator->get();
         removeCommands(extension);
         removeEvents(extension);
+        removeSettingsPages(extension);
         if (extension->descriptor && extension->descriptor->deactivate) {
             try {
                 extension->descriptor->deactivate(extension->descriptor->extension_context);
@@ -387,6 +418,7 @@ void ExtensionManager::shutdown()
     m_extensions.clear();
     m_commands.clear();
     m_events.clear();
+    m_settingsPages.clear();
 }
 
 QList<NativeExtensionInfo> ExtensionManager::loadedExtensions() const
@@ -606,6 +638,108 @@ QStringList ExtensionManager::commandIds() const
     return result;
 }
 
+QList<ExtensionSettingsPageInfo> ExtensionManager::createSettingsPages(QWidget *parent) const
+{
+    QList<ExtensionSettingsPageInfo> result;
+    for (const auto &registered : m_settingsPages) {
+        if (!registered->owner) continue;
+        auto *page = new QWidget(parent);
+        page->setObjectName(QStringLiteral("extensionSettingsPage.%1")
+                                .arg(registered->owner->info.id));
+        auto *layout = new QVBoxLayout(page);
+        auto *title = new QLabel(registered->title, page);
+        title->setProperty("settingsHeading", true);
+        layout->addWidget(title);
+        if (!registered->description.isEmpty()) {
+            auto *description = new QLabel(registered->description, page);
+            description->setWordWrap(true);
+            layout->addWidget(description);
+        }
+        auto *form = new QFormLayout;
+        QList<std::function<void()>> applyActions;
+        QList<std::function<void()>> resetActions;
+        QSettings persisted;
+        for (const auto &setting : registered->settings) {
+            const QString path = QStringLiteral("extensions/settings/%1/%2")
+                                     .arg(registered->owner->info.id, setting.key);
+            const QVariant current = persisted.value(path, setting.defaultValue);
+            const QString objectName = QStringLiteral("extensionSetting.%1.%2")
+                                           .arg(registered->owner->info.id, setting.key);
+            if (setting.type == NS_SETTING_BOOLEAN) {
+                auto *control = new QCheckBox(setting.label, page);
+                control->setObjectName(objectName);
+                control->setToolTip(setting.description);
+                const bool defaultValue = setting.defaultValue.compare(
+                    QStringLiteral("true"), Qt::CaseInsensitive) == 0;
+                const QString currentValue = current.toString();
+                control->setChecked(currentValue.compare(
+                    QStringLiteral("true"), Qt::CaseInsensitive) == 0
+                    || currentValue == QStringLiteral("1"));
+                form->addRow(QString{}, control);
+                applyActions.push_back([control, path] {
+                    QSettings().setValue(path, control->isChecked() ? QStringLiteral("true")
+                                                                    : QStringLiteral("false"));
+                });
+                resetActions.push_back([control, defaultValue] {
+                    control->setChecked(defaultValue);
+                });
+            } else if (setting.type == NS_SETTING_INTEGER) {
+                auto *control = new QSpinBox(page);
+                control->setObjectName(objectName);
+                control->setToolTip(setting.description);
+                control->setRange(setting.minimum, setting.maximum);
+                const int defaultValue = setting.defaultValue.toInt();
+                control->setValue(current.toInt());
+                form->addRow(setting.label + QLatin1Char(':'), control);
+                applyActions.push_back([control, path] {
+                    QSettings().setValue(path, QString::number(control->value()));
+                });
+                resetActions.push_back([control, defaultValue] {
+                    control->setValue(defaultValue);
+                });
+            } else if (setting.type == NS_SETTING_CHOICE) {
+                auto *control = new QComboBox(page);
+                control->setObjectName(objectName);
+                control->setToolTip(setting.description);
+                for (const auto &choice : setting.choices)
+                    control->addItem(choice.second, choice.first);
+                const int defaultIndex = qMax(0, control->findData(setting.defaultValue));
+                const int currentIndex = control->findData(current.toString());
+                control->setCurrentIndex(currentIndex >= 0 ? currentIndex : defaultIndex);
+                form->addRow(setting.label + QLatin1Char(':'), control);
+                applyActions.push_back([control, path] {
+                    QSettings().setValue(path, control->currentData().toString());
+                });
+                resetActions.push_back([control, defaultIndex] {
+                    control->setCurrentIndex(defaultIndex);
+                });
+            } else {
+                auto *control = new QLineEdit(current.toString(), page);
+                control->setObjectName(objectName);
+                control->setToolTip(setting.description);
+                const QString defaultValue = setting.defaultValue;
+                form->addRow(setting.label + QLatin1Char(':'), control);
+                applyActions.push_back([control, path] {
+                    QSettings().setValue(path, control->text());
+                });
+                resetActions.push_back([control, defaultValue] {
+                    control->setText(defaultValue);
+                });
+            }
+        }
+        layout->addLayout(form);
+        layout->addStretch();
+        result.push_back({
+            registered->title,
+            registered->keywords,
+            page,
+            [applyActions] { for (const auto &apply : applyActions) apply(); },
+            [resetActions] { for (const auto &reset : resetActions) reset(); }
+        });
+    }
+    return result;
+}
+
 void ExtensionManager::notifyDocumentWillSave()
 {
     if (m_shuttingDown || !m_window) return;
@@ -686,6 +820,121 @@ bool ExtensionManager::registerEvent(LoadedExtension *owner, uint32_t eventType,
     return true;
 }
 
+bool ExtensionManager::registerSettingsPage(LoadedExtension *owner,
+                                            const NsSettingsPageSpec *page)
+{
+    const size_t requiredPageSize = offsetof(NsSettingsPageSpec, setting_count)
+        + sizeof(page->setting_count);
+    if (!owner || !page || page->struct_size < requiredPageSize
+        || page->setting_count > 128 || (page->setting_count > 0 && !page->settings)) return false;
+    if (std::any_of(m_settingsPages.cbegin(), m_settingsPages.cend(), [owner](const auto &existing) {
+            return existing->owner == owner;
+        })) return false;
+    auto registered = std::make_unique<RegisteredSettingsPage>();
+    registered->owner = owner;
+    registered->title = fromView(page->title).trimmed();
+    registered->description = fromView(page->description).trimmed();
+    registered->keywords = fromView(page->keywords).split(
+        QRegularExpression(QStringLiteral("[,\\s]+")), Qt::SkipEmptyParts);
+    if (registered->title.isEmpty()) return false;
+
+    static const QRegularExpression validKey(QStringLiteral("^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"));
+    QSet<QString> keys;
+    for (size_t index = 0; index < page->setting_count; ++index) {
+        const NsSettingSpec &source = page->settings[index];
+        const size_t requiredSettingSize = offsetof(NsSettingSpec, choice_count)
+            + sizeof(source.choice_count);
+        if (source.struct_size < requiredSettingSize || source.choice_count > 64
+            || (source.choice_count > 0 && !source.choices)) return false;
+        RegisteredSettingsPage::Setting setting;
+        setting.key = fromView(source.key).trimmed();
+        setting.label = fromView(source.label).trimmed();
+        setting.description = fromView(source.description).trimmed();
+        setting.type = source.type;
+        setting.defaultValue = fromView(source.default_value);
+        if (!validKey.match(setting.key).hasMatch() || setting.label.isEmpty()
+            || keys.contains(setting.key.toLower())) return false;
+        keys.insert(setting.key.toLower());
+        if (setting.type == NS_SETTING_INTEGER) {
+            const int64_t minimum = std::clamp<int64_t>(
+                source.minimum, std::numeric_limits<int>::min(),
+                std::numeric_limits<int>::max());
+            const int64_t maximum = std::clamp<int64_t>(
+                source.maximum, std::numeric_limits<int>::min(),
+                std::numeric_limits<int>::max());
+            if (minimum > maximum) return false;
+            setting.minimum = static_cast<int>(minimum);
+            setting.maximum = static_cast<int>(maximum);
+            bool validDefault = false;
+            const int defaultValue = setting.defaultValue.toInt(&validDefault);
+            if (!validDefault || defaultValue < setting.minimum || defaultValue > setting.maximum)
+                return false;
+        } else if (setting.type == NS_SETTING_CHOICE) {
+            for (size_t choice = 0; choice < source.choice_count; ++choice) {
+                const size_t requiredChoiceSize = offsetof(NsSettingChoice, label)
+                    + sizeof(source.choices[choice].label);
+                if (source.choices[choice].struct_size < requiredChoiceSize) return false;
+                const QString value = fromView(source.choices[choice].value);
+                const QString label = fromView(source.choices[choice].label);
+                if (value.isEmpty() || label.isEmpty()) return false;
+                setting.choices.push_back({value, label});
+            }
+            if (setting.choices.isEmpty()) return false;
+            const bool validDefault = std::any_of(
+                setting.choices.cbegin(), setting.choices.cend(), [&setting](const auto &choice) {
+                    return choice.first == setting.defaultValue;
+                });
+            if (!validDefault) return false;
+        } else if (setting.type == NS_SETTING_BOOLEAN) {
+            const QString lowered = setting.defaultValue.trimmed().toLower();
+            if (lowered != QStringLiteral("true") && lowered != QStringLiteral("false"))
+                return false;
+            setting.defaultValue = lowered;
+        } else if (setting.type != NS_SETTING_TEXT) {
+            return false;
+        }
+        registered->settings.push_back(std::move(setting));
+    }
+    m_settingsPages.push_back(std::move(registered));
+    return true;
+}
+
+QString ExtensionManager::extensionSetting(LoadedExtension *owner, const QString &key) const
+{
+    if (!owner) return {};
+    for (const auto &page : m_settingsPages) {
+        if (page->owner != owner) continue;
+        for (const auto &setting : page->settings) {
+            if (setting.key.compare(key, Qt::CaseInsensitive) != 0) continue;
+            const QString path = QStringLiteral("extensions/settings/%1/%2")
+                                     .arg(owner->info.id, setting.key);
+            const QString stored = QSettings().value(path, setting.defaultValue).toString();
+            if (setting.type == NS_SETTING_BOOLEAN) {
+                const QString lowered = stored.trimmed().toLower();
+                return lowered == QStringLiteral("true") || lowered == QStringLiteral("1")
+                    ? QStringLiteral("true")
+                    : lowered == QStringLiteral("false") || lowered == QStringLiteral("0")
+                        ? QStringLiteral("false") : setting.defaultValue;
+            }
+            if (setting.type == NS_SETTING_INTEGER) {
+                bool valid = false;
+                const int value = stored.toInt(&valid);
+                return valid && value >= setting.minimum && value <= setting.maximum
+                    ? QString::number(value) : setting.defaultValue;
+            }
+            if (setting.type == NS_SETTING_CHOICE) {
+                const bool valid = std::any_of(
+                    setting.choices.cbegin(), setting.choices.cend(), [&stored](const auto &choice) {
+                        return choice.first == stored;
+                    });
+                return valid ? stored : setting.defaultValue;
+            }
+            return stored;
+        }
+    }
+    return {};
+}
+
 void ExtensionManager::triggerCommand(RegisteredCommand *command)
 {
     if (!command || !command->callback || m_shuttingDown) return;
@@ -722,6 +971,13 @@ void ExtensionManager::removeEvents(LoadedExtension *owner)
     const auto firstRemoved = std::remove_if(m_events.begin(), m_events.end(),
         [owner](const auto &event) { return event->owner == owner; });
     m_events.erase(firstRemoved, m_events.end());
+}
+
+void ExtensionManager::removeSettingsPages(LoadedExtension *owner)
+{
+    const auto firstRemoved = std::remove_if(m_settingsPages.begin(), m_settingsPages.end(),
+        [owner](const auto &page) { return page->owner == owner; });
+    m_settingsPages.erase(firstRemoved, m_settingsPages.end());
 }
 
 int32_t ExtensionManager::hostRegisterCommand(void *hostContext, NsExtensionHandle extension,
@@ -814,5 +1070,36 @@ size_t ExtensionManager::hostGetActiveDocumentText(void *hostContext, char *buff
     const size_t required = static_cast<size_t>(text.size());
     if (buffer && capacity >= required && required > 0)
         std::memcpy(buffer, text.constData(), required);
+    return required;
+}
+
+int32_t ExtensionManager::hostRegisterSettingsPage(void *hostContext,
+                                                   NsExtensionHandle extension,
+                                                   const NsSettingsPageSpec *page)
+{
+    auto *manager = static_cast<ExtensionManager *>(hostContext);
+    auto *owner = static_cast<LoadedExtension *>(extension);
+    if (!manager || manager->m_shuttingDown) return 0;
+    const bool knownOwner = std::any_of(manager->m_extensions.cbegin(), manager->m_extensions.cend(),
+        [owner](const auto &candidate) { return candidate.get() == owner; });
+    return knownOwner && manager->registerSettingsPage(owner, page) ? 1 : 0;
+}
+
+size_t ExtensionManager::hostGetExtensionSetting(void *hostContext,
+                                                 NsExtensionHandle extension,
+                                                 NsStringView key,
+                                                 char *buffer,
+                                                 size_t capacity)
+{
+    auto *manager = static_cast<ExtensionManager *>(hostContext);
+    auto *owner = static_cast<LoadedExtension *>(extension);
+    if (!manager || manager->m_shuttingDown) return 0;
+    const bool knownOwner = std::any_of(manager->m_extensions.cbegin(), manager->m_extensions.cend(),
+        [owner](const auto &candidate) { return candidate.get() == owner; });
+    if (!knownOwner) return 0;
+    const QByteArray value = manager->extensionSetting(owner, fromView(key)).toUtf8();
+    const size_t required = static_cast<size_t>(value.size());
+    if (buffer && capacity >= required && required > 0)
+        std::memcpy(buffer, value.constData(), required);
     return required;
 }

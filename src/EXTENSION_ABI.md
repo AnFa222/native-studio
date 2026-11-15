@@ -118,6 +118,8 @@ Extensions shipped with Native Studio are installed under `bin/extensions/bundle
 - `run_process`: launch a program and argument array in the integrated terminal.
 - `register_event_listener`: subscribe to a supported editor event with a direct callback. v1 currently exposes `NS_EVENT_DOCUMENT_WILL_SAVE`.
 - `get_active_document_text`: copy the active UTF-8 document into a caller-owned buffer; call with a null buffer first to query its byte size.
+- `register_settings_page`: describe a native settings page with boolean, integer, text, or choice fields. Native Studio owns and renders the Qt controls; the extension remains independent of Qt.
+- `get_extension_setting`: copy one setting's current UTF-8 value into a caller-owned buffer; call with a null buffer first to query its byte size. Values are scoped automatically to the calling extension.
 
 Command callbacks receive the active file path, project root, and document-modified state without an additional host query.
 
@@ -135,3 +137,48 @@ static void beforeSave(void *, const NsEventContext *event)
 api->register_event_listener(api->host_context, self,
     NS_EVENT_DOCUMENT_WILL_SAVE, &beforeSave, nullptr);
 ```
+
+## Extension settings pages
+
+An activated extension may register one settings page. The specification is copied during registration, so temporary arrays are safe. Setting keys must be unique within the page. Stored values live under an extension-specific namespace and are never shared with another extension. The host presents the page in **Settings > Preferences**, participates in settings search, and commits changes when the user selects **OK**.
+
+```cpp
+static const NsSettingChoice styleChoices[] = {
+    {sizeof(NsSettingChoice), sv("conventional"), sv("Conventional")},
+    {sizeof(NsSettingChoice), sv("compact"), sv("Compact")}
+};
+
+static const NsSettingSpec settings[] = {
+    {sizeof(NsSettingSpec), sv("format_on_save"), sv("Format on save"),
+     sv("Format supported files immediately before saving."),
+     NS_SETTING_BOOLEAN, sv("true"), 0, 0, nullptr, 0},
+    {sizeof(NsSettingSpec), sv("indent_width"), sv("Indent width"),
+     sv("Spaces used for one indentation level."),
+     NS_SETTING_INTEGER, sv("4"), 2, 8, nullptr, 0},
+    {sizeof(NsSettingSpec), sv("style"), sv("Formatting style"),
+     sv("Select the formatter's spacing style."),
+     NS_SETTING_CHOICE, sv("conventional"), 0, 0,
+     styleChoices, sizeof(styleChoices) / sizeof(styleChoices[0])}
+};
+
+static const NsSettingsPageSpec page{
+    sizeof(NsSettingsPageSpec), sv("Example Formatter"),
+    sv("Configure formatting supplied by this extension."),
+    sv("format indentation style"), settings,
+    sizeof(settings) / sizeof(settings[0])
+};
+
+api->register_settings_page(api->host_context, self, &page);
+```
+
+Read a setting when it is needed so changes take effect without reloading the extension:
+
+```cpp
+const size_t bytes = api->get_extension_setting(
+    api->host_context, self, sv("indent_width"), nullptr, 0);
+std::string value(bytes, '\0');
+api->get_extension_setting(
+    api->host_context, self, sv("indent_width"), value.data(), value.size());
+```
+
+`get_extension_setting` returns the exact UTF-8 byte count and does not append a null terminator. Boolean values are `true` or `false`; integer values use decimal notation; choices return their declared value. Unknown keys return zero. As with all append-only v1 additions, check `NsHostApi::struct_size` before calling these functions when the extension must also run on an older Native Studio build.

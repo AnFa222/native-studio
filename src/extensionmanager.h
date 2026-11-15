@@ -6,11 +6,13 @@
 #include <QStringList>
 
 #include <memory>
+#include <functional>
 #include <vector>
 
 class QAction;
 class QLibrary;
 class QMenu;
+class QWidget;
 class MainWindow;
 
 struct NativeExtensionInfo
@@ -29,6 +31,15 @@ struct NativeExtensionInfo
     bool pendingRestart = false;
 };
 
+struct ExtensionSettingsPageInfo
+{
+    QString title;
+    QStringList keywords;
+    QWidget *widget = nullptr;
+    std::function<void()> apply;
+    std::function<void()> restoreDefaults;
+};
+
 class ExtensionManager final : public QObject
 {
     Q_OBJECT
@@ -45,6 +56,7 @@ public:
     [[nodiscard]] QList<NativeExtensionInfo> loadedExtensions() const;
     [[nodiscard]] QList<NativeExtensionInfo> installedExtensions() const;
     [[nodiscard]] QStringList commandIds() const;
+    [[nodiscard]] QList<ExtensionSettingsPageInfo> createSettingsPages(QWidget *parent) const;
     void notifyDocumentWillSave();
     bool importExtension(const QString &manifestPath, QString *error = nullptr,
                          bool *restartRequired = nullptr);
@@ -61,6 +73,7 @@ private:
     struct LoadedExtension;
     struct RegisteredCommand;
     struct RegisteredEvent;
+    struct RegisteredSettingsPage;
     struct PendingManifest {
         QString filePath;
         bool bundled = false;
@@ -83,9 +96,12 @@ private:
     bool registerCommand(LoadedExtension *owner, const NsCommandSpec *command);
     bool registerEvent(LoadedExtension *owner, uint32_t eventType,
                        NsEventCallback callback, void *userData);
+    bool registerSettingsPage(LoadedExtension *owner, const NsSettingsPageSpec *page);
     void triggerCommand(RegisteredCommand *command);
     void removeCommands(LoadedExtension *owner);
     void removeEvents(LoadedExtension *owner);
+    void removeSettingsPages(LoadedExtension *owner);
+    [[nodiscard]] QString extensionSetting(LoadedExtension *owner, const QString &key) const;
     [[nodiscard]] QMenu *commandMenu(const QString &category);
 
     static int32_t hostRegisterCommand(void *hostContext, NsExtensionHandle extension,
@@ -102,6 +118,10 @@ private:
                                              uint32_t eventType, NsEventCallback callback,
                                              void *userData);
     static size_t hostGetActiveDocumentText(void *hostContext, char *buffer, size_t capacity);
+    static int32_t hostRegisterSettingsPage(void *hostContext, NsExtensionHandle extension,
+                                            const NsSettingsPageSpec *page);
+    static size_t hostGetExtensionSetting(void *hostContext, NsExtensionHandle extension,
+                                          NsStringView key, char *buffer, size_t capacity);
 
     MainWindow *m_window = nullptr;
     QMenu *m_extensionsMenu = nullptr;
@@ -109,6 +129,7 @@ private:
     std::vector<std::unique_ptr<LoadedExtension>> m_extensions;
     std::vector<std::unique_ptr<RegisteredCommand>> m_commands;
     std::vector<std::unique_ptr<RegisteredEvent>> m_events;
+    std::vector<std::unique_ptr<RegisteredSettingsPage>> m_settingsPages;
     QList<PendingManifest> m_pendingManifests;
     int m_asyncLoadedCount = 0;
     bool m_asyncLoading = false;

@@ -214,6 +214,14 @@ SettingsDialog::SettingsDialog(LanguageManager *languages, ExtensionManager *ext
         for (const auto &page : pluginPages)
             addPage(page.title, page.keywords, page.widget);
     }
+    if (m_extensions) {
+        const auto extensionPages = m_extensions->createSettingsPages(m_pages);
+        for (const auto &page : extensionPages) {
+            addPage(page.title, page.keywords, page.widget);
+            if (page.apply) m_extensionSettingsApply.push_back(page.apply);
+            if (page.restoreDefaults) m_extensionSettingsRestore.push_back(page.restoreDefaults);
+        }
+    }
 
     auto *buttons = new QDialogButtonBox(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel | QDialogButtonBox::RestoreDefaults, this);
@@ -278,6 +286,7 @@ void SettingsDialog::restoreDefaults()
     m_terminalBackground = QColor(QStringLiteral("#010409"));
     updateColorButton(m_terminalForegroundButton, m_terminalForeground);
     updateColorButton(m_terminalBackgroundButton, m_terminalBackground);
+    for (const auto &restore : m_extensionSettingsRestore) restore();
 }
 
 void SettingsDialog::accept()
@@ -297,5 +306,6 @@ void SettingsDialog::accept()
     settings.setValue(QStringLiteral("terminal/followTheme"), m_terminalFollowTheme->isChecked());
     settings.setValue(QStringLiteral("terminal/foreground"), m_terminalForeground.name());
     settings.setValue(QStringLiteral("terminal/background"), m_terminalBackground.name());
+    for (const auto &apply : m_extensionSettingsApply) apply();
     QDialog::accept();
 }
