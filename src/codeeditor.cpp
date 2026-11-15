@@ -319,6 +319,38 @@ bool CodeEditor::insertAutoIndentedNewLine()
     return true;
 }
 
+bool CodeEditor::deleteIndentationBack()
+{
+    if (!m_autoIndent) return false;
+    QTextCursor cursor = textCursor();
+    if (cursor.hasSelection() || cursor.positionInBlock() == 0) return false;
+
+    const int column = cursor.positionInBlock();
+    const QString beforeCursor = cursor.block().text().left(column);
+    for (const QChar character : beforeCursor) {
+        if (character != QLatin1Char(' ') && character != QLatin1Char('\t')) return false;
+    }
+
+    int removeCount = 1;
+    if (beforeCursor.endsWith(QLatin1Char(' '))) {
+        const int previousStop = ((column - 1) / m_tabSize) * m_tabSize;
+        removeCount = column - previousStop;
+        int availableSpaces = 0;
+        while (availableSpaces < beforeCursor.size()
+               && beforeCursor.at(beforeCursor.size() - 1 - availableSpaces) == QLatin1Char(' ')) {
+            ++availableSpaces;
+        }
+        removeCount = qMin(removeCount, availableSpaces);
+    }
+
+    cursor.beginEditBlock();
+    cursor.movePosition(QTextCursor::Left, QTextCursor::KeepAnchor, removeCount);
+    cursor.removeSelectedText();
+    cursor.endEditBlock();
+    setTextCursor(cursor);
+    return true;
+}
+
 QString CodeEditor::currentWordPrefix() const
 {
     const QTextCursor cursor = textCursor();
@@ -437,6 +469,14 @@ void CodeEditor::keyPressEvent(QKeyEvent *event)
     if (!hasCommandModifier
         && (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter)
         && insertAutoIndentedNewLine()) {
+        event->accept();
+        return;
+    }
+    if (!hasCommandModifier && event->key() == Qt::Key_Backspace
+        && deleteIndentationBack()) {
+        m_completer->popup()->hide();
+        m_completionDismissed = false;
+        updateCompletionCandidate();
         event->accept();
         return;
     }

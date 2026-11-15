@@ -58,6 +58,7 @@ private:
     [[nodiscard]] QString currentWordPrefix() const;
     [[nodiscard]] const CodeDiagnostic *diagnosticAt(int documentPosition) const;
     bool insertAutoIndentedNewLine();
+    bool deleteIndentationBack();
 
     QString m_filePath;
     QSyntaxHighlighter *m_highlighter = nullptr;

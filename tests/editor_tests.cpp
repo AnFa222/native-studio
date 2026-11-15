@@ -19,6 +19,8 @@
 #include <QDialogButtonBox>
 #include <QDockWidget>
 #include <QDir>
+#include <QDragEnterEvent>
+#include <QDropEvent>
 #include <QSpinBox>
 #include <QSplitter>
 #include <QTabWidget>
@@ -27,6 +29,7 @@
 #include <QStatusBar>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMimeData>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSettings>
@@ -38,6 +41,7 @@
 #include <QTextDocument>
 #include <QTextLayout>
 #include <QTreeWidget>
+#include <QToolBar>
 #include <QToolButton>
 
 #include <algorithm>
@@ -308,6 +312,8 @@ void EditorTests::terminalRunsProgram()
     QVERIFY(terminalView != nullptr);
     QVERIFY(terminalView->styleSheet().contains(QStringLiteral("#ffffff")));
     QVERIFY(terminate != nullptr);
+    QVERIFY(terminate->text().isEmpty());
+    QCOMPARE(terminate->size(), QSize(20, 20));
     auto *terminalTabs = window.findChild<QTabWidget *>(QStringLiteral("terminalTabs"));
     QVERIFY(terminalTabs != nullptr);
     QCOMPARE(terminalTabs->cornerWidget(Qt::TopRightCorner), terminate);
@@ -980,6 +986,13 @@ void EditorTests::autoIndentsUsingLanguagePlugins()
     pythonEditor->moveCursor(QTextCursor::End);
     QTest::keyClick(pythonEditor, Qt::Key_Return);
     QCOMPARE(pythonEditor->toPlainText(), QStringLiteral("if ready:\n    "));
+    QTest::keyClick(pythonEditor, Qt::Key_Backspace);
+    QCOMPARE(pythonEditor->toPlainText(), QStringLiteral("if ready:\n"));
+
+    pythonEditor->setPlainText(QStringLiteral("      "));
+    pythonEditor->moveCursor(QTextCursor::End);
+    QTest::keyClick(pythonEditor, Qt::Key_Backspace);
+    QCOMPARE(pythonEditor->toPlainText(), QStringLiteral("    "));
 
     window.openFile(cppPath);
     auto *cppEditor = qobject_cast<CodeEditor *>(window.editorTabs()->currentWidget());
@@ -1045,6 +1058,11 @@ void EditorTests::nativeWorkspaceFeaturesAreLazyAndAvailable()
                               QStringLiteral("keybindingsAction"),
                               QStringLiteral("newTerminalAction")})
         QVERIFY2(window.findChild<QAction *>(id) != nullptr, qPrintable(id));
+    auto *openFolderAction = window.findChild<QAction *>(QStringLiteral("openProjectAction"));
+    QVERIFY(openFolderAction != nullptr);
+    QVERIFY(openFolderAction->text().contains(QStringLiteral("Open Folder")));
+    QVERIFY(window.findChild<QToolBar *>(QStringLiteral("fileToolbar"))
+                ->actions().contains(openFolderAction));
     KeybindingsDialog keybindings(window.findChildren<QAction *>(), &window);
     auto *keybindingsTable = keybindings.findChild<QTableWidget *>(QStringLiteral("keybindingsTable"));
     QVERIFY(keybindingsTable != nullptr);
@@ -1059,7 +1077,26 @@ void EditorTests::nativeWorkspaceFeaturesAreLazyAndAvailable()
     QVERIFY(outline->topLevelItemCount() > 0);
 
     window.findChild<QAction *>(QStringLiteral("splitEditorAction"))->trigger();
-    QVERIFY(window.findChild<QTabWidget *>(QStringLiteral("secondaryEditorTabs")) != nullptr);
+    auto *secondaryTabs = window.findChild<QTabWidget *>(QStringLiteral("secondaryEditorTabs"));
+    QVERIFY(secondaryTabs != nullptr);
+    auto *tabMime = new QMimeData;
+    tabMime->setData(QStringLiteral("application/x-native-studio-editor-tab"), path.toUtf8());
+    QDragEnterEvent tabDragEnter(QPoint(20, 20), Qt::CopyAction, tabMime,
+                                 Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(window.editorTabs(), &tabDragEnter);
+    QDropEvent tabDrop(QPointF(20, 20), Qt::CopyAction, tabMime,
+                       Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(window.editorTabs(), &tabDrop);
+    bool movedToPrimary = false;
+    for (int index = 0; index < window.editorTabs()->count(); ++index) {
+        auto *candidate = qobject_cast<CodeEditor *>(window.editorTabs()->widget(index));
+        if (candidate && candidate->filePath() == QFileInfo(path).absoluteFilePath()) {
+            movedToPrimary = true;
+            break;
+        }
+    }
+    QVERIFY(movedToPrimary);
+    delete tabMime;
     auto *terminals = window.findChild<QTabWidget *>(QStringLiteral("terminalTabs"));
     QVERIFY(terminals != nullptr);
     const int terminalCount = terminals->count();

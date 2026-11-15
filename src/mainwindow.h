@@ -93,6 +93,7 @@ private:
     void configureEditorGroup(QTabWidget *tabs);
     void installTabCloseButton(QTabWidget *tabs, int index);
     void closeTabIn(QTabWidget *tabs, int index);
+    void moveEditorToGroup(const QString &path, QTabWidget *destination);
     bool saveEditor(CodeEditor *editor, bool forceDialog = false);
     bool confirmCloseEditor(CodeEditor *editor);
     void updateTabTitle(CodeEditor *editor);

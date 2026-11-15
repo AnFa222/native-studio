@@ -65,6 +65,7 @@ ProjectExplorer::ProjectExplorer(QWidget *parent)
     m_filter->setClearButtonEnabled(true);
     m_filter->setVisible(false);
     m_openFolder->setObjectName(QStringLiteral("explorerOpenFolder"));
+    m_openFolder->setVisible(false);
 
     auto *newFileButton = makeButton(this, style()->standardIcon(QStyle::SP_FileIcon), tr("New File"));
     auto *newFolderButton = makeButton(this, style()->standardIcon(QStyle::SP_DirIcon), tr("New Folder"));
