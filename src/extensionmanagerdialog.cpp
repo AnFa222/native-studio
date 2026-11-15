@@ -158,7 +158,7 @@ void ExtensionManagerDialog::updateSelection()
     });
     const bool selected = found != extensions.cend();
     m_toggle->setEnabled(selected);
-    m_remove->setEnabled(selected && !found->bundled);
+    m_remove->setEnabled(selected && !found->bundled && !found->pendingRestart);
     if (!selected) {
         m_details->clear();
         return;
@@ -236,6 +236,11 @@ void ExtensionManagerDialog::removeSelected()
         return;
     }
     refresh();
-    QMessageBox::information(this, tr("Extension Removal"),
-        tr("The extension was removed, or scheduled for removal after restarting Native Studio."));
+    const auto installed = m_manager->installedExtensions();
+    const bool stillInstalled = std::any_of(
+        installed.cbegin(), installed.cend(),
+        [&id](const auto &extension) { return extension.id == id; });
+    QMessageBox::information(this, tr("Extension Removal"), stillInstalled
+        ? tr("The extension was deactivated and will be deleted after restarting Native Studio.")
+        : tr("The extension was removed."));
 }

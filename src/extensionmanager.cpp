@@ -620,9 +620,9 @@ bool ExtensionManager::removeExtension(const QString &id, QString *error)
         return false;
     }
 
-    const QString base = safeInstallBase(found->id);
     QDir directory(userExtensionDirectory());
-    if (found->loaded) {
+    const QString base = safeInstallBase(found->id);
+    const auto stageRemoval = [&]() {
         QJsonObject removal;
         removal.insert(QStringLiteral("manifest"), QFileInfo(found->manifestPath).fileName());
         removal.insert(QStringLiteral("binary"), QFileInfo(found->filePath).fileName());
@@ -633,14 +633,41 @@ bool ExtensionManager::removeExtension(const QString &id, QString *error)
             if (error) *error = tr("Could not schedule extension removal.");
             return false;
         }
-    } else {
-        if (!QFile::remove(found->manifestPath) || !QFile::remove(found->filePath)) {
-            if (error) *error = tr("Could not remove extension files.");
-            return false;
+        return true;
+    };
+
+    bool unloaded = true;
+    const auto loaded = std::find_if(m_extensions.begin(), m_extensions.end(),
+        [&id](const auto &extension) {
+            return extension->info.id.compare(id, Qt::CaseInsensitive) == 0;
+        });
+    if (loaded != m_extensions.end()) {
+        LoadedExtension *owner = loaded->get();
+        removeCommands(owner);
+        removeEvents(owner);
+        removeSettingsPages(owner);
+        removeViews(owner);
+        if (owner->descriptor && owner->descriptor->deactivate) {
+            try {
+                owner->descriptor->deactivate(owner->descriptor->extension_context);
+            } catch (...) {
+                qWarning() << "Native extension deactivation threw an exception:" << id;
+            }
         }
+        unloaded = owner->library->unload();
+        m_extensions.erase(loaded);
     }
+
+    const bool manifestRemoved = !QFileInfo::exists(found->manifestPath)
+        || QFile::remove(found->manifestPath);
+    const bool binaryRemoved = unloaded && (!QFileInfo::exists(found->filePath)
+        || QFile::remove(found->filePath));
+    if ((!manifestRemoved || !binaryRemoved) && !stageRemoval()) return false;
+
     QStringList disabled = disabledExtensionIds();
-    if (!disabled.contains(found->id, Qt::CaseInsensitive)) disabled.push_back(found->id);
+    disabled.removeIf([&found](const QString &entry) {
+        return entry.compare(found->id, Qt::CaseInsensitive) == 0;
+    });
     setDisabledExtensionIds(disabled);
     return true;
 }
@@ -875,6 +902,8 @@ void ExtensionManager::notifyDocumentWillSave()
 
 QString ExtensionManager::userExtensionDirectory()
 {
+    const QString overridePath = qEnvironmentVariable("NATIVE_STUDIO_USER_EXTENSION_DIR").trimmed();
+    if (!overridePath.isEmpty()) return QDir::cleanPath(overridePath);
     return QDir(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation))
         .filePath(QStringLiteral("extensions"));
 }

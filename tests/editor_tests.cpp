@@ -96,6 +96,27 @@ private:
     QString m_application;
     QSettings::Format m_format;
 };
+
+class EnvironmentGuard
+{
+public:
+    EnvironmentGuard(QByteArray key, const QByteArray &value)
+        : m_key(std::move(key)), m_existed(qEnvironmentVariableIsSet(m_key.constData())),
+          m_value(qgetenv(m_key.constData()))
+    {
+        qputenv(m_key.constData(), value);
+    }
+    ~EnvironmentGuard()
+    {
+        if (m_existed) qputenv(m_key.constData(), m_value);
+        else qunsetenv(m_key.constData());
+    }
+
+private:
+    QByteArray m_key;
+    bool m_existed = false;
+    QByteArray m_value;
+};
 }
 
 class EditorTests final : public QObject
@@ -458,6 +479,11 @@ void EditorTests::pluginExplorerHasMarketplaceControls()
 
 void EditorTests::pythonVariableExplorerRunsIndependently()
 {
+    ApplicationSettingsGuard applicationSettings;
+    QTemporaryDir userExtensions;
+    QVERIFY(userExtensions.isValid());
+    EnvironmentGuard extensionDirectory(
+        QByteArrayLiteral("NATIVE_STUDIO_USER_EXTENSION_DIR"), userExtensions.path().toUtf8());
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
     const QString path = directory.filePath(QStringLiteral("variables.py"));
@@ -471,21 +497,18 @@ void EditorTests::pythonVariableExplorerRunsIndependently()
     window.openFile(path);
     const QString extensionId = QStringLiteral("dev.nativestudio.python_variable_explorer");
     auto *manager = window.extensionManager();
-    const auto installed = manager->installedExtensions();
-    QVERIFY(std::none_of(installed.cbegin(), installed.cend(),
-        [&extensionId](const auto &extension) {
-            return extension.id == extensionId && extension.bundled;
-        }));
     QString storeDirectory = QDir(QCoreApplication::applicationDirPath())
         .filePath(QStringLiteral("extensions/store"));
     if (!QDir(storeDirectory).exists()) {
         storeDirectory = QDir(QDir(QCoreApplication::applicationDirPath())
             .filePath(QStringLiteral(".."))).filePath(QStringLiteral("extensions/store"));
     }
-    const auto loadedBefore = manager->loadedExtensions();
-    if (!std::any_of(loadedBefore.cbegin(), loadedBefore.cend(),
-        [&extensionId](const auto &extension) { return extension.id == extensionId; }))
-        QCOMPARE(manager->loadExtensions(storeDirectory, false), 1);
+    QString importError;
+    bool restartRequired = false;
+    QVERIFY2(manager->importExtension(
+        QDir(storeDirectory).filePath(QStringLiteral("native_python_variable_explorer.json")),
+        &importError, &restartRequired), qPrintable(importError));
+    QVERIFY(!restartRequired);
     const auto loaded = manager->loadedExtensions();
     const auto found = std::find_if(loaded.cbegin(), loaded.cend(),
         [&extensionId](const auto &extension) { return extension.id == extensionId; });
@@ -512,6 +535,13 @@ void EditorTests::pythonVariableExplorerRunsIndependently()
     QVERIFY(tree->findItems(QStringLiteral("answer"), Qt::MatchExactly, 0).size() == 1);
     QCOMPARE(tree->findItems(QStringLiteral("answer"), Qt::MatchExactly, 0)
                  .first()->text(2), QStringLiteral("42"));
+
+    QString removalError;
+    QVERIFY2(manager->removeExtension(extensionId, &removalError), qPrintable(removalError));
+    const auto remaining = manager->installedExtensions();
+    QVERIFY(std::none_of(remaining.cbegin(), remaining.cend(),
+        [&extensionId](const auto &extension) { return extension.id == extensionId; }));
+    QVERIFY(!manager->viewIds().contains(QStringLiteral("python.variableExplorer")));
 }
 
 void EditorTests::codeTidyFormatsDocumentAndSave()
