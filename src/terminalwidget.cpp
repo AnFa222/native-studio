@@ -15,13 +15,16 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 
-TerminalWidget::TerminalWidget(QWidget *parent)
+TerminalWidget::TerminalWidget(QWidget *parent, const QString &shellProgram,
+                               const QStringList &shellArguments)
     : QWidget(parent)
     , m_output(new QPlainTextEdit(this))
     , m_terminateButton(new QToolButton(this))
     , m_shell(new QProcess(this))
     , m_runner(new QProcess(this))
     , m_workingDirectory(QDir::currentPath())
+    , m_shellProgram(shellProgram)
+    , m_shellArguments(shellArguments)
 {
     const auto font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
     m_output->setObjectName(QStringLiteral("terminalOutput"));
@@ -102,9 +105,11 @@ void TerminalWidget::startShell()
     m_shellTerminationRequested = false;
     m_shell->setWorkingDirectory(m_workingDirectory);
 #ifdef Q_OS_WIN
-    m_shell->start(QStringLiteral("cmd.exe"), {QStringLiteral("/Q")});
+    m_shell->start(m_shellProgram.isEmpty() ? QStringLiteral("cmd.exe") : m_shellProgram,
+                   m_shellArguments.isEmpty() ? QStringList{QStringLiteral("/Q")} : m_shellArguments);
 #else
-    m_shell->start(QStringLiteral("/bin/sh"));
+    m_shell->start(m_shellProgram.isEmpty() ? QStringLiteral("/bin/sh") : m_shellProgram,
+                   m_shellArguments);
 #endif
 }
 

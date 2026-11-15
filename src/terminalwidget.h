@@ -12,7 +12,8 @@ class TerminalWidget final : public QWidget
     Q_OBJECT
 
 public:
-    explicit TerminalWidget(QWidget *parent = nullptr);
+    explicit TerminalWidget(QWidget *parent = nullptr, const QString &shellProgram = {},
+                            const QStringList &shellArguments = {});
     ~TerminalWidget() override;
 
     void setWorkingDirectory(const QString &directory);
@@ -54,4 +55,6 @@ private:
     bool m_shellStarted = false;
     bool m_shellTerminationRequested = false;
     bool m_runnerTerminationRequested = false;
+    QString m_shellProgram;
+    QStringList m_shellArguments;
 };

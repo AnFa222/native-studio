@@ -147,6 +147,30 @@ int CppLanguagePlugin::indentationDeltaAfterLine(const QString &lineText) const
     return codeWithoutCppStringsAndComments(lineText).trimmed().endsWith(QLatin1Char('{')) ? 1 : 0;
 }
 
+QList<CodeSymbol> CppLanguagePlugin::documentSymbols(const QString &documentText) const
+{
+    QList<CodeSymbol> symbols;
+    const QStringList lines = codeWithoutCppStringsAndComments(documentText).split(QLatin1Char('\n'));
+    const QRegularExpression typePattern(
+        QStringLiteral(R"(^\s*(class|struct|enum|namespace)\s+([A-Za-z_][A-Za-z0-9_]*))"));
+    const QRegularExpression functionPattern(
+        QStringLiteral(R"(^\s*(?:[\w:<>,~*&]+\s+)+([A-Za-z_~][A-Za-z0-9_:~]*)\s*\([^;]*\)\s*(?:const\s*)?(?:noexcept\s*)?(?:\{|$))"));
+    for (int line = 0; line < lines.size(); ++line) {
+        const QString &text = lines.at(line);
+        auto match = typePattern.match(text);
+        if (match.hasMatch()) {
+            symbols.push_back({match.captured(2), match.captured(1), line,
+                               static_cast<int>(match.capturedStart(2)), 0});
+            continue;
+        }
+        match = functionPattern.match(text);
+        if (match.hasMatch())
+            symbols.push_back({match.captured(1), QStringLiteral("function"), line,
+                               static_cast<int>(match.capturedStart(1)), 0});
+    }
+    return symbols;
+}
+
 QStringList CppLanguagePlugin::completionItems(const QString &documentText) const
 {
     QSet<QString> items = {

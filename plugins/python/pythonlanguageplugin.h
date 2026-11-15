@@ -10,12 +10,12 @@ class QProcess;
 
 class PythonLanguagePlugin final : public QObject, public LanguagePlugin,
                                    public LanguageStatusProvider, public LanguageSettingsProvider,
-                                   public LanguageIndentationProvider
+                                   public LanguageIndentationProvider, public LanguageSymbolProvider
 {
     Q_OBJECT
     Q_PLUGIN_METADATA(IID LanguagePlugin_iid FILE "pythonplugin.json")
     Q_INTERFACES(LanguagePlugin LanguageStatusProvider LanguageSettingsProvider
-                 LanguageIndentationProvider)
+                 LanguageIndentationProvider LanguageSymbolProvider)
 
 public:
     ~PythonLanguagePlugin() override;
@@ -27,6 +27,7 @@ public:
     [[nodiscard]] QStringList completionItems(const QString &documentText) const override;
     [[nodiscard]] QList<CodeDiagnostic> diagnostics(const QString &documentText) const override;
     [[nodiscard]] int indentationDeltaAfterLine(const QString &lineText) const override;
+    [[nodiscard]] QList<CodeSymbol> documentSymbols(const QString &documentText) const override;
     QWidget *createStatusWidget(QWidget *parent) override;
     [[nodiscard]] QString settingsTitle() const override;
     [[nodiscard]] QStringList settingsKeywords() const override;

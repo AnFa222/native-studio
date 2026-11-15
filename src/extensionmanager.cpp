@@ -11,6 +11,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QFormLayout>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QKeySequence>
@@ -34,6 +35,8 @@
 
 struct ExtensionManager::LoadedExtension
 {
+    ExtensionManager *manager = nullptr;
+    NsHostApi hostApi{};
     std::unique_ptr<QLibrary> library;
     const NsExtensionDescriptor *descriptor = nullptr;
     NativeExtensionInfo info;
@@ -169,6 +172,24 @@ bool ExtensionManager::readManifest(const QString &path, bool bundled,
         if (error) *error = QObject::tr("Extension id is missing or invalid.");
         return false;
     }
+    static const QSet<QString> supportedPermissions{
+        QStringLiteral("ui.commands"), QStringLiteral("editor.read"),
+        QStringLiteral("editor.write"), QStringLiteral("editor.events"),
+        QStringLiteral("filesystem.read"), QStringLiteral("process.execute"),
+        QStringLiteral("settings")
+    };
+    const QJsonValue permissionValue = object.value(QStringLiteral("permissions"));
+    if (!permissionValue.isUndefined() && !permissionValue.isArray()) {
+        if (error) *error = QObject::tr("Manifest permissions must be an array of strings.");
+        return false;
+    }
+    for (const QJsonValue &permission : permissionValue.toArray()) {
+        const QString value = permission.toString().trimmed().toLower();
+        if (value.isEmpty() || !supportedPermissions.contains(value)) {
+            if (error) *error = QObject::tr("Unknown extension permission: %1").arg(value);
+            return false;
+        }
+    }
     const uint32_t abiVersion = static_cast<uint32_t>(
         object.value(QStringLiteral("abiVersion")).toInt());
     if (abiVersion != NS_EXTENSION_ABI_VERSION) {
@@ -218,6 +239,12 @@ bool ExtensionManager::readManifest(const QString &path, bool bundled,
         info->version = object.value(QStringLiteral("version")).toString().trimmed();
         info->description = object.value(QStringLiteral("description")).toString().trimmed();
         info->author = object.value(QStringLiteral("author")).toString().trimmed();
+        const QJsonArray permissionValues = object.value(QStringLiteral("permissions")).toArray();
+        for (const QJsonValue &permission : permissionValues) {
+            const QString value = permission.toString().trimmed().toLower();
+            if (!value.isEmpty() && !info->permissions.contains(value))
+                info->permissions.push_back(value);
+        }
         info->filePath = binaryInfo.absoluteFilePath();
         info->manifestPath = manifestInfo.absoluteFilePath();
         info->abiVersion = abiVersion;
@@ -257,6 +284,9 @@ bool ExtensionManager::loadManifest(const QString &manifestPath, bool bundled)
         || !manifest.enabled || containsExtension(manifest.id)) return false;
     const QFileInfo file(manifest.filePath);
     auto extension = std::make_unique<LoadedExtension>();
+    extension->manager = this;
+    extension->hostApi = m_hostApi;
+    extension->hostApi.host_context = extension.get();
     extension->library = std::make_unique<QLibrary>(file.absoluteFilePath());
     if (!extension->library->load()) {
         qWarning().noquote() << "Could not load native extension" << file.fileName()
@@ -303,7 +333,7 @@ bool ExtensionManager::loadManifest(const QString &manifestPath, bool bundled)
     m_extensions.push_back(std::move(extension));
     int32_t activationResult = -1;
     try {
-        activationResult = descriptor->activate(descriptor->extension_context, &m_hostApi,
+        activationResult = descriptor->activate(descriptor->extension_context, &handle->hostApi,
                                                  static_cast<NsExtensionHandle>(handle));
     } catch (...) {
         qWarning() << "Native extension activation threw an exception:" << id;
@@ -800,7 +830,11 @@ bool ExtensionManager::registerCommand(LoadedExtension *owner, const NsCommandSp
     registered->action = menu->addAction(title);
     registered->action->setObjectName(QStringLiteral("extensionCommand.%1").arg(id));
     const QString shortcut = fromView(command->default_shortcut).trimmed();
-    if (!shortcut.isEmpty()) registered->action->setShortcut(QKeySequence(shortcut));
+    const QString shortcutKey = QStringLiteral("keybindings/") + registered->action->objectName();
+    if (QSettings().contains(shortcutKey))
+        registered->action->setShortcut(QKeySequence(QSettings().value(shortcutKey).toString()));
+    else if (!shortcut.isEmpty())
+        registered->action->setShortcut(QKeySequence(shortcut));
     RegisteredCommand *raw = registered.get();
     connect(registered->action, &QAction::triggered, this, [this, raw] { triggerCommand(raw); });
     m_commands.push_back(std::move(registered));
@@ -935,6 +969,11 @@ QString ExtensionManager::extensionSetting(LoadedExtension *owner, const QString
     return {};
 }
 
+bool ExtensionManager::hasPermission(const LoadedExtension *owner, const QString &permission) const
+{
+    return owner && owner->info.permissions.contains(permission, Qt::CaseInsensitive);
+}
+
 void ExtensionManager::triggerCommand(RegisteredCommand *command)
 {
     if (!command || !command->callback || m_shuttingDown) return;
@@ -983,9 +1022,11 @@ void ExtensionManager::removeSettingsPages(LoadedExtension *owner)
 int32_t ExtensionManager::hostRegisterCommand(void *hostContext, NsExtensionHandle extension,
                                                const NsCommandSpec *command)
 {
-    auto *manager = static_cast<ExtensionManager *>(hostContext);
+    auto *contextOwner = static_cast<LoadedExtension *>(hostContext);
+    auto *manager = contextOwner ? contextOwner->manager : nullptr;
     auto *owner = static_cast<LoadedExtension *>(extension);
-    if (!manager || manager->m_shuttingDown) return 0;
+    if (!manager || owner != contextOwner || manager->m_shuttingDown
+        || !manager->hasPermission(owner, QStringLiteral("ui.commands"))) return 0;
     const bool knownOwner = std::any_of(manager->m_extensions.cbegin(), manager->m_extensions.cend(),
         [owner](const auto &candidate) { return candidate.get() == owner; });
     return knownOwner && manager->registerCommand(owner, command) ? 1 : 0;
@@ -993,7 +1034,8 @@ int32_t ExtensionManager::hostRegisterCommand(void *hostContext, NsExtensionHand
 
 void ExtensionManager::hostShowMessage(void *hostContext, NsStringView message, uint32_t timeoutMs)
 {
-    auto *manager = static_cast<ExtensionManager *>(hostContext);
+    auto *owner = static_cast<LoadedExtension *>(hostContext);
+    auto *manager = owner ? owner->manager : nullptr;
     if (manager && manager->m_window)
         manager->m_window->showExtensionMessage(fromView(message), static_cast<int>(timeoutMs));
 }
@@ -1009,8 +1051,10 @@ void ExtensionManager::hostLog(void *, NsLogLevel level, NsStringView message)
 
 int32_t ExtensionManager::hostOpenFile(void *hostContext, NsStringView path)
 {
-    auto *manager = static_cast<ExtensionManager *>(hostContext);
-    if (!manager || !manager->m_window) return 0;
+    auto *owner = static_cast<LoadedExtension *>(hostContext);
+    auto *manager = owner ? owner->manager : nullptr;
+    if (!manager || !manager->m_window
+        || !manager->hasPermission(owner, QStringLiteral("filesystem.read"))) return 0;
     const QString filePath = fromView(path);
     if (filePath.isEmpty()) return 0;
     manager->m_window->openFile(filePath);
@@ -1019,15 +1063,19 @@ int32_t ExtensionManager::hostOpenFile(void *hostContext, NsStringView path)
 
 int32_t ExtensionManager::hostInsertText(void *hostContext, NsStringView text)
 {
-    auto *manager = static_cast<ExtensionManager *>(hostContext);
+    auto *owner = static_cast<LoadedExtension *>(hostContext);
+    auto *manager = owner ? owner->manager : nullptr;
     return manager && manager->m_window
+        && manager->hasPermission(owner, QStringLiteral("editor.write"))
         && manager->m_window->insertExtensionText(fromView(text)) ? 1 : 0;
 }
 
 int32_t ExtensionManager::hostReplaceDocumentText(void *hostContext, NsStringView text)
 {
-    auto *manager = static_cast<ExtensionManager *>(hostContext);
+    auto *owner = static_cast<LoadedExtension *>(hostContext);
+    auto *manager = owner ? owner->manager : nullptr;
     return manager && manager->m_window
+        && manager->hasPermission(owner, QStringLiteral("editor.write"))
         && manager->m_window->replaceExtensionDocument(fromView(text)) ? 1 : 0;
 }
 
@@ -1035,9 +1083,11 @@ int32_t ExtensionManager::hostRunProcess(void *hostContext, NsStringView program
                                          const NsStringView *arguments, size_t argumentCount,
                                          NsStringView workingDirectory)
 {
-    auto *manager = static_cast<ExtensionManager *>(hostContext);
+    auto *owner = static_cast<LoadedExtension *>(hostContext);
+    auto *manager = owner ? owner->manager : nullptr;
     if (!manager || !manager->m_window || argumentCount > 4096
-        || (argumentCount > 0 && !arguments)) return 0;
+        || (argumentCount > 0 && !arguments)
+        || !manager->hasPermission(owner, QStringLiteral("process.execute"))) return 0;
     QStringList convertedArguments;
     convertedArguments.reserve(static_cast<qsizetype>(std::min(argumentCount,
         static_cast<size_t>(std::numeric_limits<qsizetype>::max()))));
@@ -1053,9 +1103,11 @@ int32_t ExtensionManager::hostRegisterEventListener(void *hostContext,
                                                     NsEventCallback callback,
                                                     void *userData)
 {
-    auto *manager = static_cast<ExtensionManager *>(hostContext);
+    auto *contextOwner = static_cast<LoadedExtension *>(hostContext);
+    auto *manager = contextOwner ? contextOwner->manager : nullptr;
     auto *owner = static_cast<LoadedExtension *>(extension);
-    if (!manager || manager->m_shuttingDown) return 0;
+    if (!manager || owner != contextOwner || manager->m_shuttingDown
+        || !manager->hasPermission(owner, QStringLiteral("editor.events"))) return 0;
     const bool knownOwner = std::any_of(manager->m_extensions.cbegin(), manager->m_extensions.cend(),
         [owner](const auto &candidate) { return candidate.get() == owner; });
     return knownOwner && manager->registerEvent(owner, eventType, callback, userData) ? 1 : 0;
@@ -1064,8 +1116,10 @@ int32_t ExtensionManager::hostRegisterEventListener(void *hostContext,
 size_t ExtensionManager::hostGetActiveDocumentText(void *hostContext, char *buffer,
                                                    size_t capacity)
 {
-    auto *manager = static_cast<ExtensionManager *>(hostContext);
-    if (!manager || !manager->m_window) return 0;
+    auto *owner = static_cast<LoadedExtension *>(hostContext);
+    auto *manager = owner ? owner->manager : nullptr;
+    if (!manager || !manager->m_window
+        || !manager->hasPermission(owner, QStringLiteral("editor.read"))) return 0;
     const QByteArray text = manager->m_window->activeDocumentText().toUtf8();
     const size_t required = static_cast<size_t>(text.size());
     if (buffer && capacity >= required && required > 0)
@@ -1077,9 +1131,11 @@ int32_t ExtensionManager::hostRegisterSettingsPage(void *hostContext,
                                                    NsExtensionHandle extension,
                                                    const NsSettingsPageSpec *page)
 {
-    auto *manager = static_cast<ExtensionManager *>(hostContext);
+    auto *contextOwner = static_cast<LoadedExtension *>(hostContext);
+    auto *manager = contextOwner ? contextOwner->manager : nullptr;
     auto *owner = static_cast<LoadedExtension *>(extension);
-    if (!manager || manager->m_shuttingDown) return 0;
+    if (!manager || owner != contextOwner || manager->m_shuttingDown
+        || !manager->hasPermission(owner, QStringLiteral("settings"))) return 0;
     const bool knownOwner = std::any_of(manager->m_extensions.cbegin(), manager->m_extensions.cend(),
         [owner](const auto &candidate) { return candidate.get() == owner; });
     return knownOwner && manager->registerSettingsPage(owner, page) ? 1 : 0;
@@ -1091,9 +1147,11 @@ size_t ExtensionManager::hostGetExtensionSetting(void *hostContext,
                                                  char *buffer,
                                                  size_t capacity)
 {
-    auto *manager = static_cast<ExtensionManager *>(hostContext);
+    auto *contextOwner = static_cast<LoadedExtension *>(hostContext);
+    auto *manager = contextOwner ? contextOwner->manager : nullptr;
     auto *owner = static_cast<LoadedExtension *>(extension);
-    if (!manager || manager->m_shuttingDown) return 0;
+    if (!manager || owner != contextOwner || manager->m_shuttingDown
+        || !manager->hasPermission(owner, QStringLiteral("settings"))) return 0;
     const bool knownOwner = std::any_of(manager->m_extensions.cbegin(), manager->m_extensions.cend(),
         [owner](const auto &candidate) { return candidate.get() == owner; });
     if (!knownOwner) return 0;

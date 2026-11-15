@@ -3,7 +3,7 @@ if(POLICY CMP0141)
     cmake_policy(SET CMP0141 NEW)
 endif()
 
-project(NativeStudio VERSION 0.14.2 LANGUAGES CXX)
+project(NativeStudio VERSION 0.15.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -22,6 +22,10 @@ add_library(nativeide_core STATIC
     src/extensionmanager.h
     src/extensionmanagerdialog.cpp
     src/extensionmanagerdialog.h
+    src/gitwidget.cpp
+    src/gitwidget.h
+    src/keybindingsdialog.cpp
+    src/keybindingsdialog.h
     src/languagemanager.cpp
     src/languagemanager.h
     src/languageplugin.h
@@ -31,6 +35,10 @@ add_library(nativeide_core STATIC
     src/pluginmanagerdialog.h
     src/projectexplorer.cpp
     src/projectexplorer.h
+    src/projectsearchwidget.cpp
+    src/projectsearchwidget.h
+    src/quickopendialog.cpp
+    src/quickopendialog.h
     src/settingsdialog.cpp
     src/settingsdialog.h
     src/terminalwidget.cpp

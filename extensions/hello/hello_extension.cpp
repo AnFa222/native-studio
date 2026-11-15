@@ -67,7 +67,7 @@ const NsExtensionDescriptor descriptor{
     NS_EXTENSION_ABI_VERSION,
     view("dev.nativestudio.hello"),
     view("Native Hello"),
-    view("1.0.0"),
+    view("1.1.0"),
     nullptr,
     &activate,
     &deactivate

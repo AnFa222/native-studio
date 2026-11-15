@@ -5,12 +5,16 @@
 #include <QAbstractItemView>
 #include <QDialogButtonBox>
 #include <QDir>
+#include <QFile>
 #include <QFileDialog>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QPushButton>
 #include <QTableWidget>
 #include <QVBoxLayout>
@@ -168,10 +172,13 @@ void ExtensionManagerDialog::updateSelection()
     m_toggle->setText(found->enabled ? tr("Disable") : tr("Enable"));
     const QString policy = found->bundled
         ? tr("\nBundled extension: it can be disabled, but not removed.") : QString{};
-    m_details->setText(tr("%1%2%3\nManifest: %4")
+    const QString permissions = found->permissions.isEmpty()
+        ? tr("None") : found->permissions.join(QStringLiteral(", "));
+    m_details->setText(tr("%1%2%3\nPermissions: %4\nManifest: %5")
         .arg(found->description,
              found->author.isEmpty() ? QString{} : tr(" — %1").arg(found->author),
              policy,
+             permissions,
              QDir::toNativeSeparators(found->manifestPath)));
 }
 
@@ -180,6 +187,21 @@ void ExtensionManagerDialog::importManifest()
     const QString path = QFileDialog::getOpenFileName(
         this, tr("Import Native Extension Manifest"), {}, tr("Extension manifests (*.json)"));
     if (path.isEmpty()) return;
+    QFile manifest(path);
+    if (manifest.open(QIODevice::ReadOnly)) {
+        const QJsonObject object = QJsonDocument::fromJson(manifest.readAll()).object();
+        QStringList permissions;
+        for (const QJsonValue &value : object.value(QStringLiteral("permissions")).toArray())
+            permissions.push_back(value.toString());
+        const QString permissionText = permissions.isEmpty()
+            ? tr("This extension declares no host permissions.")
+            : tr("This extension requests:\n\n• %1").arg(
+                  permissions.join(QStringLiteral("\n• ")));
+        if (QMessageBox::question(this, tr("Install Native Extension"),
+                tr("%1\n\nNative extensions run in-process. Install only extensions you trust.")
+                    .arg(permissionText), QMessageBox::Yes | QMessageBox::Cancel,
+                QMessageBox::Cancel) != QMessageBox::Yes) return;
+    }
     QString error;
     bool restart = false;
     if (!m_manager->importExtension(path, &error, &restart)) {

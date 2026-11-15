@@ -29,6 +29,7 @@ Every extension ships a JSON manifest beside its binary:
   "abiVersion": 1,
   "description": "What the extension does.",
   "author": "Example Author",
+  "permissions": ["ui.commands", "editor.write"],
   "binary": {
     "windows": "example.dll",
     "linux": "example.so",
@@ -38,6 +39,18 @@ Every extension ships a JSON manifest beside its binary:
 ```
 
 `binary` may also be one string for a single-platform package. It must be a relative path inside the manifest directory. The manager validates the schema, ABI version, binary type, containment, and exported descriptor identity/version before activation. Updates and removals are staged until restart when Windows has the DLL loaded.
+
+`permissions` is an optional array of host capabilities. Native Studio displays requested permissions before importing an extension and rejects unknown permission names. Host calls are denied unless the extension declares the corresponding capability:
+
+- `ui.commands`: register commands in the Extensions menu.
+- `editor.read`: read the active document.
+- `editor.write`: insert or replace active-document text.
+- `editor.events`: subscribe to editor lifecycle events.
+- `filesystem.read`: ask the host to open a file.
+- `process.execute`: launch programs in the integrated terminal.
+- `settings`: register a settings page and read its values.
+
+Permissions authorize host API calls only. Native shared libraries execute in-process, so install binaries only from publishers you trust.
 
 ## Entry point
 

@@ -13,6 +13,7 @@ int main(int argc, char *argv[])
     MainWindow window;
     if (window.restoreWindowLayout()) window.show();
     else window.showMaximized();
+    QTimer::singleShot(0, &window, &MainWindow::restoreSessionDeferred);
     QTimer::singleShot(0, &window, &MainWindow::startDeferredServices);
     return application.exec();
 }

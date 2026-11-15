@@ -24,6 +24,7 @@ struct NativeExtensionInfo
     QString author;
     QString filePath;
     QString manifestPath;
+    QStringList permissions;
     uint32_t abiVersion = 0;
     bool bundled = false;
     bool enabled = true;
@@ -102,6 +103,7 @@ private:
     void removeEvents(LoadedExtension *owner);
     void removeSettingsPages(LoadedExtension *owner);
     [[nodiscard]] QString extensionSetting(LoadedExtension *owner, const QString &key) const;
+    [[nodiscard]] bool hasPermission(const LoadedExtension *owner, const QString &permission) const;
     [[nodiscard]] QMenu *commandMenu(const QString &category);
 
     static int32_t hostRegisterCommand(void *hostContext, NsExtensionHandle extension,

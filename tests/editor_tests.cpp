@@ -2,6 +2,7 @@
 #include "extensionmanager.h"
 #include "extensionmanagerdialog.h"
 #include "languagemanager.h"
+#include "keybindingsdialog.h"
 #include "mainwindow.h"
 #include "pluginmanagerdialog.h"
 #include "projectexplorer.h"
@@ -16,8 +17,10 @@
 #include <QComboBox>
 #include <QCheckBox>
 #include <QDialogButtonBox>
+#include <QDockWidget>
 #include <QDir>
 #include <QSpinBox>
+#include <QSplitter>
 #include <QTabWidget>
 #include <QTemporaryDir>
 #include <QSignalSpy>
@@ -124,6 +127,7 @@ private slots:
     void autoClosesAndKeepsPairsOnBackspace();
     void autoIndentsUsingLanguagePlugins();
     void problemsPanelTracksDiagnostics();
+    void nativeWorkspaceFeaturesAreLazyAndAvailable();
 };
 
 void EditorTests::startsWithOneUntitledEditor()
@@ -134,6 +138,9 @@ void EditorTests::startsWithOneUntitledEditor()
     QVERIFY(window.projectTree() != nullptr);
     QVERIFY(window.languageManager()->languages().isEmpty());
     QVERIFY(window.extensionManager()->loadedExtensions().isEmpty());
+    QVERIFY(window.findChild<QWidget *>(QStringLiteral("projectSearchWidget")) == nullptr);
+    QVERIFY(window.findChild<QWidget *>(QStringLiteral("gitWidget")) == nullptr);
+    QVERIFY(window.findChild<QTabWidget *>(QStringLiteral("secondaryEditorTabs")) == nullptr);
     auto *closeButton = window.editorTabs()->tabBar()->tabButton(0, QTabBar::RightSide);
     QVERIFY(closeButton != nullptr);
     QCOMPARE(closeButton->objectName(), QStringLiteral("editorTabCloseButton"));
@@ -997,7 +1004,98 @@ void EditorTests::problemsPanelTracksDiagnostics()
     auto *problems = window.findChild<QTreeWidget *>(QStringLiteral("problemsTree"));
     QVERIFY(problems != nullptr);
     QVERIFY(problems->topLevelItemCount() > 0);
-    QVERIFY(problems->topLevelItem(0)->text(2).contains(QStringLiteral("Expected ':'")));
+    auto *fileGroup = problems->topLevelItem(0);
+    QVERIFY(fileGroup->childCount() > 0);
+    auto *severityGroup = fileGroup->child(0);
+    QVERIFY(severityGroup->childCount() > 0);
+    QVERIFY(severityGroup->child(0)->text(2).contains(QStringLiteral("Expected ':'")));
+}
+
+void EditorTests::nativeWorkspaceFeaturesAreLazyAndAvailable()
+{
+    ApplicationSettingsGuard applicationSettings;
+    QSettings().remove(QStringLiteral("session/documents"));
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString path = directory.filePath(QStringLiteral("symbols.py"));
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("class Greeter:\n    def hello(self):\n        return 'hi'\n");
+    file.close();
+
+    MainWindow window;
+    QVERIFY(window.projectTree()->isHidden());
+    QVERIFY(window.projectExplorer()->findChild<QPushButton *>(
+        QStringLiteral("explorerOpenFolder")) != nullptr);
+    window.loadServicesNow();
+    window.openProject(directory.path());
+    QVERIFY(!window.projectTree()->isHidden());
+    QVERIFY(window.projectExplorer()->findChild<QLineEdit *>(
+        QStringLiteral("explorerFilter")) != nullptr);
+
+    for (const QString &id : {QStringLiteral("quickOpenAction"),
+                              QStringLiteral("projectSearchAction"),
+                              QStringLiteral("splitEditorAction"),
+                              QStringLiteral("sourceControlAction"),
+                              QStringLiteral("keybindingsAction"),
+                              QStringLiteral("newTerminalAction")})
+        QVERIFY2(window.findChild<QAction *>(id) != nullptr, qPrintable(id));
+    KeybindingsDialog keybindings(window.findChildren<QAction *>(), &window);
+    QVERIFY(keybindings.findChild<QTableWidget *>(QStringLiteral("keybindingsTable")) != nullptr);
+
+    window.openFile(path);
+    const auto symbols = window.languageManager()->documentSymbols(
+        path, QStringLiteral("class Greeter:\n    def hello(self):\n        pass\n"));
+    QCOMPARE(symbols.size(), 2);
+    auto *outline = window.findChild<QTreeWidget *>(QStringLiteral("outlineTree"));
+    QVERIFY(outline != nullptr);
+    QVERIFY(outline->topLevelItemCount() > 0);
+
+    window.findChild<QAction *>(QStringLiteral("splitEditorAction"))->trigger();
+    QVERIFY(window.findChild<QTabWidget *>(QStringLiteral("secondaryEditorTabs")) != nullptr);
+    auto *terminals = window.findChild<QTabWidget *>(QStringLiteral("terminalTabs"));
+    QVERIFY(terminals != nullptr);
+    const int terminalCount = terminals->count();
+    window.findChild<QAction *>(QStringLiteral("newTerminalAction"))->trigger();
+    QCOMPARE(terminals->count(), terminalCount + 1);
+
+    window.findChild<QAction *>(QStringLiteral("projectSearchAction"))->trigger();
+    QVERIFY(window.findChild<QWidget *>(QStringLiteral("projectSearchWidget")) != nullptr);
+    window.findChild<QAction *>(QStringLiteral("sourceControlAction"))->trigger();
+    QVERIFY(window.findChild<QWidget *>(QStringLiteral("gitWidget")) != nullptr);
+
+    const auto extensions = window.extensionManager()->installedExtensions();
+    const auto tidy = std::find_if(extensions.cbegin(), extensions.cend(), [](const auto &extension) {
+        return extension.id == QStringLiteral("dev.nativestudio.code_tidy");
+    });
+    QVERIFY(tidy != extensions.cend());
+    QVERIFY(tidy->permissions.contains(QStringLiteral("editor.write")));
+
+    auto *editor = qobject_cast<CodeEditor *>(
+        window.findChild<QTabWidget *>(QStringLiteral("secondaryEditorTabs"))->currentWidget());
+    QVERIFY(editor != nullptr);
+    editor->appendPlainText(QStringLiteral("# unsaved session text"));
+    QVERIFY(window.close());
+    const QVariantList session = QSettings().value(QStringLiteral("session/documents")).toList();
+    QVERIFY(!session.isEmpty());
+    QVERIFY(std::any_of(session.cbegin(), session.cend(), [](const QVariant &entry) {
+        return entry.toMap().value(QStringLiteral("text")).toString()
+            .contains(QStringLiteral("unsaved session text"));
+    }));
+
+    MainWindow restored;
+    restored.restoreSessionDeferred();
+    QTRY_VERIFY_WITH_TIMEOUT(restored.findChild<QTabWidget *>(
+        QStringLiteral("secondaryEditorTabs")) != nullptr, 2000);
+    bool restoredUnsavedText = false;
+    for (QTabWidget *tabs : restored.findChildren<QTabWidget *>()) {
+        for (int index = 0; index < tabs->count(); ++index) {
+            auto *restoredEditor = qobject_cast<CodeEditor *>(tabs->widget(index));
+            restoredUnsavedText = restoredUnsavedText || (restoredEditor
+                && restoredEditor->toPlainText().contains(QStringLiteral("unsaved session text")));
+        }
+    }
+    QVERIFY(restoredUnsavedText);
 }
 
 QTEST_MAIN(EditorTests)

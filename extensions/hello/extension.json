@@ -2,10 +2,11 @@
     "manifestVersion": 1,
     "id": "dev.nativestudio.hello",
     "name": "Native Hello",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "abiVersion": 1,
     "description": "Example native extension with command and editor host calls.",
     "author": "Native Studio",
+    "permissions": ["ui.commands", "editor.write"],
     "binary": {
         "windows": "native_hello.dll",
         "linux": "native_hello.so",

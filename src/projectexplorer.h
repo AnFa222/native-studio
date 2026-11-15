@@ -4,7 +4,9 @@
 
 class QFileSystemModel;
 class QLabel;
+class QLineEdit;
 class QModelIndex;
+class QPushButton;
 class QTreeView;
 
 class ProjectExplorer final : public QWidget
@@ -21,6 +23,7 @@ public:
 
 signals:
     void fileActivated(const QString &path);
+    void openFolderRequested();
 
 private slots:
     void activate(const QModelIndex &index);
@@ -30,6 +33,8 @@ private slots:
     void renameSelected();
     void removeSelected();
     void refresh();
+    void filterChanged(const QString &text);
+    void updateBreadcrumb(const QModelIndex &current);
 
 private:
     [[nodiscard]] QString selectedPath() const;
@@ -39,5 +44,8 @@ private:
     QFileSystemModel *m_model = nullptr;
     QTreeView *m_tree = nullptr;
     QLabel *m_workspaceLabel = nullptr;
+    QLabel *m_breadcrumb = nullptr;
+    QLineEdit *m_filter = nullptr;
+    QPushButton *m_openFolder = nullptr;
     QString m_rootPath;
 };

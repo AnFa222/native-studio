@@ -14,8 +14,11 @@ class ProjectExplorer;
 class QDockWidget;
 class QTabWidget;
 class QTreeWidget;
+class QSplitter;
 class TerminalWidget;
 class QTreeView;
+class ProjectSearchWidget;
+class GitWidget;
 
 class MainWindow final : public QMainWindow
 {
@@ -36,6 +39,7 @@ public:
     [[nodiscard]] QString activeDocumentText() const;
     void startDeferredServices();
     void loadServicesNow();
+    void restoreSessionDeferred();
     bool restoreWindowLayout();
     void showExtensionMessage(const QString &message, int timeoutMs = 3000);
     bool insertExtensionText(const QString &text);
@@ -64,12 +68,25 @@ private slots:
     void managePlugins();
     void manageExtensions();
     void runCurrentFile();
+    void quickOpen();
+    void showProjectSearch();
+    void splitEditorRight();
+    void showKeybindings();
+    void showGit();
+    void newTerminal();
+    void newPowerShellTerminal();
 
 private:
     [[nodiscard]] CodeEditor *currentEditor() const;
     [[nodiscard]] CodeEditor *editorAt(int index) const;
     [[nodiscard]] int findEditor(const QString &path) const;
+    [[nodiscard]] QPair<QTabWidget *, int> findEditorLocation(const QString &path) const;
     CodeEditor *addEditor(const QString &title = tr("Untitled"));
+    CodeEditor *editorAt(QTabWidget *tabs, int index) const;
+    QList<QTabWidget *> editorGroups() const;
+    void configureEditorGroup(QTabWidget *tabs);
+    void installTabCloseButton(QTabWidget *tabs, int index);
+    void closeTabIn(QTabWidget *tabs, int index);
     bool saveEditor(CodeEditor *editor, bool forceDialog = false);
     bool confirmCloseEditor(CodeEditor *editor);
     void updateTabTitle(CodeEditor *editor);
@@ -83,16 +100,32 @@ private:
     void updateLanguageStatusWidgets();
     void updateStartupStatus();
     void updateProblems(CodeEditor *editor);
+    void updateOutline(CodeEditor *editor);
+    void saveSession();
+    void restoreSession();
+    void applyStoredKeybindings();
+    TerminalWidget *createTerminal(const QString &title, const QString &program = {},
+                                   const QStringList &arguments = {});
     [[nodiscard]] static QIcon createRunIcon();
 
     QTabWidget *m_tabs = nullptr;
+    QTabWidget *m_secondaryTabs = nullptr;
+    QTabWidget *m_activeTabs = nullptr;
+    QSplitter *m_editorSplitter = nullptr;
     ProjectExplorer *m_projectExplorer = nullptr;
     LanguageManager *m_languageManager = nullptr;
     ExtensionManager *m_extensionManager = nullptr;
     TerminalWidget *m_terminal = nullptr;
+    QTabWidget *m_terminalTabs = nullptr;
     QDockWidget *m_terminalDock = nullptr;
     QDockWidget *m_problemsDock = nullptr;
     QTreeWidget *m_problemsTree = nullptr;
+    QDockWidget *m_outlineDock = nullptr;
+    QTreeWidget *m_outlineTree = nullptr;
+    QDockWidget *m_searchDock = nullptr;
+    ProjectSearchWidget *m_projectSearch = nullptr;
+    QDockWidget *m_gitDock = nullptr;
+    GitWidget *m_gitWidget = nullptr;
     QAction *m_runAction = nullptr;
     QMenu *m_extensionsMenu = nullptr;
     QLabel *m_cursorStatus = nullptr;

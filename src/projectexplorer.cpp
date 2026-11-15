@@ -8,9 +8,12 @@
 #include <QFileSystemModel>
 #include <QHBoxLayout>
 #include <QInputDialog>
+#include <QItemSelectionModel>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMenu>
 #include <QMessageBox>
+#include <QPushButton>
 #include <QStyle>
 #include <QToolButton>
 #include <QTreeView>
@@ -33,8 +36,11 @@ ProjectExplorer::ProjectExplorer(QWidget *parent)
     , m_model(new QFileSystemModel(this))
     , m_tree(new QTreeView(this))
     , m_workspaceLabel(new QLabel(tr("NO FOLDER OPENED"), this))
+    , m_breadcrumb(new QLabel(this))
+    , m_filter(new QLineEdit(this))
+    , m_openFolder(new QPushButton(tr("Open Folder"), this))
 {
-    m_model->setFilter(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden);
+    m_model->setFilter(QDir::AllEntries | QDir::AllDirs | QDir::NoDotAndDotDot | QDir::Hidden);
     m_model->setReadOnly(false);
     m_model->setIconProvider(new QFileIconProvider());
 
@@ -46,10 +52,19 @@ ProjectExplorer::ProjectExplorer(QWidget *parent)
     m_tree->setUniformRowHeights(true);
     m_tree->setEditTriggers(QAbstractItemView::EditKeyPressed | QAbstractItemView::SelectedClicked);
     m_tree->setContextMenuPolicy(Qt::CustomContextMenu);
+    m_tree->setVisible(false);
     for (int column = 1; column < m_model->columnCount(); ++column) m_tree->hideColumn(column);
 
     m_workspaceLabel->setObjectName(QStringLiteral("workspaceLabel"));
     m_workspaceLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    m_breadcrumb->setObjectName(QStringLiteral("explorerBreadcrumb"));
+    m_breadcrumb->setContentsMargins(10, 3, 6, 3);
+    m_breadcrumb->setVisible(false);
+    m_filter->setObjectName(QStringLiteral("explorerFilter"));
+    m_filter->setPlaceholderText(tr("Filter files…"));
+    m_filter->setClearButtonEnabled(true);
+    m_filter->setVisible(false);
+    m_openFolder->setObjectName(QStringLiteral("explorerOpenFolder"));
 
     auto *newFileButton = makeButton(this, style()->standardIcon(QStyle::SP_FileIcon), tr("New File"));
     auto *newFolderButton = makeButton(this, style()->standardIcon(QStyle::SP_DirIcon), tr("New Folder"));
@@ -69,6 +84,9 @@ ProjectExplorer::ProjectExplorer(QWidget *parent)
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
     layout->addLayout(header);
+    layout->addWidget(m_breadcrumb);
+    layout->addWidget(m_filter);
+    layout->addWidget(m_openFolder, 0, Qt::AlignHCenter);
     layout->addWidget(m_tree);
 
     connect(m_tree, &QTreeView::doubleClicked, this, &ProjectExplorer::activate);
@@ -77,6 +95,10 @@ ProjectExplorer::ProjectExplorer(QWidget *parent)
     connect(newFolderButton, &QToolButton::clicked, this, &ProjectExplorer::createFolder);
     connect(refreshButton, &QToolButton::clicked, this, &ProjectExplorer::refresh);
     connect(collapseButton, &QToolButton::clicked, m_tree, &QTreeView::collapseAll);
+    connect(m_openFolder, &QPushButton::clicked, this, &ProjectExplorer::openFolderRequested);
+    connect(m_filter, &QLineEdit::textChanged, this, &ProjectExplorer::filterChanged);
+    connect(m_tree->selectionModel(), &QItemSelectionModel::currentChanged,
+            this, &ProjectExplorer::updateBreadcrumb);
 }
 
 void ProjectExplorer::setRootPath(const QString &directory)
@@ -87,6 +109,11 @@ void ProjectExplorer::setRootPath(const QString &directory)
     m_workspaceLabel->setText(info.fileName().toUpper());
     m_workspaceLabel->setToolTip(QDir::toNativeSeparators(m_rootPath));
     m_tree->setRootIndex(m_model->setRootPath(m_rootPath));
+    m_tree->setVisible(true);
+    m_filter->setVisible(true);
+    m_breadcrumb->setVisible(true);
+    m_openFolder->setVisible(false);
+    m_breadcrumb->setText(info.fileName());
 }
 
 QString ProjectExplorer::rootPath() const { return m_rootPath; }
@@ -169,6 +196,27 @@ void ProjectExplorer::refresh()
     const QString root = m_rootPath;
     m_tree->setRootIndex(m_model->setRootPath(QString{}));
     m_tree->setRootIndex(m_model->setRootPath(root));
+}
+
+void ProjectExplorer::filterChanged(const QString &text)
+{
+    const QString filter = text.trimmed();
+    m_model->setNameFilters(filter.isEmpty()
+        ? QStringList{} : QStringList{QStringLiteral("*%1*").arg(filter)});
+    m_model->setNameFilterDisables(false);
+}
+
+void ProjectExplorer::updateBreadcrumb(const QModelIndex &current)
+{
+    if (!current.isValid() || m_rootPath.isEmpty()) {
+        m_breadcrumb->setText(QFileInfo(m_rootPath).fileName());
+        return;
+    }
+    const QString relative = QDir(m_rootPath).relativeFilePath(m_model->filePath(current));
+    m_breadcrumb->setText(relative == QStringLiteral(".")
+        ? QFileInfo(m_rootPath).fileName()
+        : QFileInfo(m_rootPath).fileName() + QStringLiteral("  ›  ")
+            + QDir::fromNativeSeparators(relative).replace(QLatin1Char('/'), QStringLiteral("  ›  ")));
 }
 
 void ProjectExplorer::showContextMenu(const QPoint &position)

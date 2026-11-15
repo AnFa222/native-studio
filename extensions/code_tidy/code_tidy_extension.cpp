@@ -492,7 +492,7 @@ void deactivate(void *) { extensionHandle = nullptr; hostApi = nullptr; }
 
 const NsExtensionDescriptor descriptor{
     sizeof(NsExtensionDescriptor), NS_EXTENSION_ABI_VERSION,
-    view("dev.nativestudio.code_tidy"), view("Code Tidy"), view("1.1.1"),
+    view("dev.nativestudio.code_tidy"), view("Code Tidy"), view("1.2.0"),
     nullptr, &activate, &deactivate
 };
 }

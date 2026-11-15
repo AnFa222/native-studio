@@ -33,6 +33,15 @@ struct CodeDiagnostic
     QString message;
 };
 
+struct CodeSymbol
+{
+    QString name;
+    QString kind;
+    int line = 0;
+    int column = 0;
+    int depth = 0;
+};
+
 class LanguagePlugin
 {
 public:
@@ -94,3 +103,13 @@ public:
 
 #define LanguageIndentationProvider_iid "dev.nativestudio.LanguageIndentationProvider/1.0"
 Q_DECLARE_INTERFACE(LanguageIndentationProvider, LanguageIndentationProvider_iid)
+
+class LanguageSymbolProvider
+{
+public:
+    virtual ~LanguageSymbolProvider() = default;
+    [[nodiscard]] virtual QList<CodeSymbol> documentSymbols(const QString &documentText) const = 0;
+};
+
+#define LanguageSymbolProvider_iid "dev.nativestudio.LanguageSymbolProvider/1.0"
+Q_DECLARE_INTERFACE(LanguageSymbolProvider, LanguageSymbolProvider_iid)

@@ -405,6 +405,22 @@ int PythonLanguagePlugin::indentationDeltaAfterLine(const QString &lineText) con
     return codeWithoutPythonStringsAndComments(lineText).trimmed().endsWith(QLatin1Char(':')) ? 1 : 0;
 }
 
+QList<CodeSymbol> PythonLanguagePlugin::documentSymbols(const QString &documentText) const
+{
+    QList<CodeSymbol> symbols;
+    const QStringList lines = codeWithoutPythonStringsAndComments(documentText).split(QLatin1Char('\n'));
+    const QRegularExpression pattern(
+        QStringLiteral(R"(^(\s*)(?:async\s+)?(def|class)\s+([A-Za-z_][A-Za-z0-9_]*))"));
+    for (int line = 0; line < lines.size(); ++line) {
+        const auto match = pattern.match(lines.at(line));
+        if (!match.hasMatch()) continue;
+        const int spaces = static_cast<int>(match.captured(1).size());
+        symbols.push_back({match.captured(3), match.captured(2), line,
+                           static_cast<int>(match.capturedStart(3)), spaces / 4});
+    }
+    return symbols;
+}
+
 RunConfiguration PythonLanguagePlugin::runConfiguration(const QString &filePath) const
 {
     RunConfiguration configuration;

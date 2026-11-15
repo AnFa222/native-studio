@@ -195,6 +195,19 @@ int LanguageManager::indentationDeltaAfterLine(const QString &filePath,
     return 0;
 }
 
+QList<CodeSymbol> LanguageManager::documentSymbols(const QString &filePath,
+                                                   const QString &documentText) const
+{
+    auto *plugin = m_byExtension.value(QFileInfo(filePath).suffix().toLower(), nullptr);
+    if (!plugin) return {};
+    for (const auto &loaded : m_plugins) {
+        if (loaded.plugin != plugin) continue;
+        const auto *provider = qobject_cast<LanguageSymbolProvider *>(loaded.instance);
+        return provider ? provider->documentSymbols(documentText) : QList<CodeSymbol>{};
+    }
+    return {};
+}
+
 QList<LanguageStatusWidgetInfo> LanguageManager::createStatusWidgets(QWidget *parent) const
 {
     QList<LanguageStatusWidgetInfo> widgets;
