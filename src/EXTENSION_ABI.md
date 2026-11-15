@@ -49,7 +49,7 @@ Every extension ships a JSON manifest beside its binary:
 - `filesystem.read`: ask the host to open a file.
 - `process.execute`: launch programs in the integrated terminal.
 - `settings`: register a settings page and read its values.
-- `ui.views`: open a host-provided lazy view such as Source Control.
+- `ui.views`: register and open lazy native dock views.
 
 Permissions authorize host API calls only. Native shared libraries execute in-process, so install binaries only from publishers you trust.
 
@@ -134,9 +134,45 @@ Extensions shipped with Native Studio are installed under `bin/extensions/bundle
 - `get_active_document_text`: copy the active UTF-8 document into a caller-owned buffer; call with a null buffer first to query its byte size.
 - `register_settings_page`: describe a native settings page with boolean, integer, text, or choice fields. Native Studio owns and renders the Qt controls; the extension remains independent of Qt.
 - `get_extension_setting`: copy one setting's current UTF-8 value into a caller-owned buffer; call with a null buffer first to query its byte size. Values are scoped automatically to the calling extension.
-- `show_view`: open a host-owned view by stable identifier. v1 currently provides `git.sourceControl`. Views remain lazy and are created only when requested.
+- `show_view`: open a registered view by stable identifier. Views remain lazy and are created only when requested.
+- `register_view`: register a persistent native Qt dock view, including its stable ID, title, dock object name, default location, lazy widget factory, and optional project-change callback.
 
 Command callbacks receive the active file path, project root, and document-modified state without an additional host query.
+
+## Native dock views
+
+`register_view` lets an extension contribute a fully native sidebar or bottom panel. Native Studio owns the dock container, saves its position, tab group, visibility, floating state, and size, and destroys the view before unloading the extension. The factory runs only when the view is first opened or restored from the previous session.
+
+The factory receives an opaque `native_parent` that is a `QWidget*` and returns the created `QWidget*` as `void*`. This optional part of the API therefore requires the extension to use the same Qt major version and compatible C++ runtime as Native Studio. Extensions that only use commands, settings, events, and editor services remain Qt-independent.
+
+```cpp
+#include "extension_api.h"
+#include <QLabel>
+
+static void *createView(void *, void *parent, NsStringView projectRoot)
+{
+    auto *label = new QLabel(static_cast<QWidget *>(parent));
+    label->setText(projectRoot.size ? "Project view" : "Open a folder");
+    return label;
+}
+
+static void projectChanged(void *, void *nativeView, NsStringView projectRoot)
+{
+    auto *label = static_cast<QLabel *>(nativeView);
+    label->setText(projectRoot.size ? "Project changed" : "Open a folder");
+}
+
+const NsViewSpec viewSpec{
+    sizeof(NsViewSpec), sv("com.example.projectView"), sv("PROJECT VIEW"),
+    sv("exampleProjectDock"), NS_VIEW_LOCATION_LEFT,
+    &createView, &projectChanged, nullptr
+};
+
+api->register_view(api->host_context, self, &viewSpec);
+api->show_view(api->host_context, sv("com.example.projectView"));
+```
+
+View IDs and dock object names must be stable and unique. Use a publisher-prefixed view ID. Do not retain the `project_root` string view after a callback returns. UI callbacks execute on the main thread; perform slow work asynchronously and marshal results back to the UI thread.
 
 ## Format-on-save event
 

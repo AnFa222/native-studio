@@ -87,6 +87,33 @@ typedef struct NsSettingsPageSpec {
     size_t setting_count;
 } NsSettingsPageSpec;
 
+typedef enum NsViewLocation {
+    NS_VIEW_LOCATION_LEFT = 1,
+    NS_VIEW_LOCATION_RIGHT = 2,
+    NS_VIEW_LOCATION_BOTTOM = 3
+} NsViewLocation;
+
+/*
+ * Native view factories return a QWidget* as an opaque pointer. This optional API is intended
+ * for extensions built against the same Qt major version and C++ runtime as Native Studio.
+ * The host takes QObject ownership and destroys the view before unloading the extension.
+ */
+typedef void *(*NsCreateViewCallback)(void *user_data, void *native_parent,
+                                      NsStringView project_root);
+typedef void (*NsViewProjectChangedCallback)(void *user_data, void *native_view,
+                                             NsStringView project_root);
+
+typedef struct NsViewSpec {
+    uint32_t struct_size;
+    NsStringView id;
+    NsStringView title;
+    NsStringView dock_object_name;
+    uint32_t default_location;
+    NsCreateViewCallback create;
+    NsViewProjectChangedCallback project_changed;
+    void *user_data;
+} NsViewSpec;
+
 typedef struct NsCommandSpec {
     uint32_t struct_size;
     NsStringView id;
@@ -121,6 +148,8 @@ typedef struct NsHostApi {
     size_t (*get_extension_setting)(void *host_context, NsExtensionHandle extension,
                                     NsStringView key, char *buffer, size_t capacity);
     int32_t (*show_view)(void *host_context, NsStringView view_id);
+    int32_t (*register_view)(void *host_context, NsExtensionHandle extension,
+                             const NsViewSpec *view);
 } NsHostApi;
 
 typedef int32_t (*NsActivateCallback)(void *extension_context, const NsHostApi *host,

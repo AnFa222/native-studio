@@ -8,6 +8,7 @@
 #include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
+#include <QDockWidget>
 #include <QFile>
 #include <QFileInfo>
 #include <QFormLayout>
@@ -23,6 +24,7 @@
 #include <QSaveFile>
 #include <QSettings>
 #include <QSet>
+#include <QPointer>
 #include <QSpinBox>
 #include <QStandardPaths>
 #include <QTimer>
@@ -79,6 +81,19 @@ struct ExtensionManager::RegisteredSettingsPage
     QList<Setting> settings;
 };
 
+struct ExtensionManager::RegisteredView
+{
+    LoadedExtension *owner = nullptr;
+    QString id;
+    QString title;
+    QString dockObjectName;
+    uint32_t defaultLocation = NS_VIEW_LOCATION_LEFT;
+    NsCreateViewCallback create = nullptr;
+    NsViewProjectChangedCallback projectChanged = nullptr;
+    void *userData = nullptr;
+    QPointer<QWidget> widget;
+};
+
 ExtensionManager::ExtensionManager(MainWindow *window, QMenu *extensionsMenu, QObject *parent)
     : QObject(parent), m_window(window), m_extensionsMenu(extensionsMenu)
 {
@@ -97,6 +112,7 @@ ExtensionManager::ExtensionManager(MainWindow *window, QMenu *extensionsMenu, QO
     m_hostApi.register_settings_page = &ExtensionManager::hostRegisterSettingsPage;
     m_hostApi.get_extension_setting = &ExtensionManager::hostGetExtensionSetting;
     m_hostApi.show_view = &ExtensionManager::hostShowView;
+    m_hostApi.register_view = &ExtensionManager::hostRegisterView;
 }
 
 ExtensionManager::~ExtensionManager()
@@ -343,6 +359,7 @@ bool ExtensionManager::loadManifest(const QString &manifestPath, bool bundled)
         removeCommands(handle);
         removeEvents(handle);
         removeSettingsPages(handle);
+        removeViews(handle);
         if (descriptor->deactivate) {
             try {
                 descriptor->deactivate(descriptor->extension_context);
@@ -436,6 +453,7 @@ void ExtensionManager::shutdown()
         removeCommands(extension);
         removeEvents(extension);
         removeSettingsPages(extension);
+        removeViews(extension);
         if (extension->descriptor && extension->descriptor->deactivate) {
             try {
                 extension->descriptor->deactivate(extension->descriptor->extension_context);
@@ -450,6 +468,7 @@ void ExtensionManager::shutdown()
     m_commands.clear();
     m_events.clear();
     m_settingsPages.clear();
+    m_views.clear();
 }
 
 QList<NativeExtensionInfo> ExtensionManager::loadedExtensions() const
@@ -667,6 +686,64 @@ QStringList ExtensionManager::commandIds() const
     for (const auto &command : m_commands) result.push_back(command->id);
     result.sort(Qt::CaseInsensitive);
     return result;
+}
+
+QStringList ExtensionManager::viewIds() const
+{
+    QStringList result;
+    result.reserve(static_cast<qsizetype>(m_views.size()));
+    for (const auto &view : m_views) result.push_back(view->id);
+    result.sort(Qt::CaseInsensitive);
+    return result;
+}
+
+bool ExtensionManager::viewInfo(const QString &viewId, ExtensionViewInfo *result) const
+{
+    if (!result) return false;
+    const auto iterator = std::find_if(m_views.cbegin(), m_views.cend(), [&viewId](const auto &view) {
+        return view->id.compare(viewId, Qt::CaseSensitive) == 0;
+    });
+    if (iterator == m_views.cend()) return false;
+    const RegisteredView *view = iterator->get();
+    *result = {view->id, view->title, view->dockObjectName, view->defaultLocation};
+    return true;
+}
+
+QWidget *ExtensionManager::createView(const QString &viewId, QWidget *parent,
+                                      const QString &projectRoot)
+{
+    const auto iterator = std::find_if(m_views.begin(), m_views.end(), [&viewId](const auto &view) {
+        return view->id.compare(viewId, Qt::CaseSensitive) == 0;
+    });
+    if (iterator == m_views.end() || (*iterator)->widget || !(*iterator)->create) return nullptr;
+    RegisteredView *view = iterator->get();
+    const QByteArray root = projectRoot.toUtf8();
+    void *created = nullptr;
+    try {
+        created = view->create(view->userData, parent,
+            {root.constData(), static_cast<size_t>(root.size())});
+    } catch (...) {
+        qWarning() << "Native extension view factory threw an exception:" << viewId;
+    }
+    auto *widget = static_cast<QWidget *>(created);
+    if (!widget) return nullptr;
+    if (widget->parentWidget() != parent) widget->setParent(parent);
+    view->widget = widget;
+    return widget;
+}
+
+void ExtensionManager::notifyProjectChanged(const QString &projectRoot)
+{
+    const QByteArray root = projectRoot.toUtf8();
+    for (const auto &view : m_views) {
+        if (!view->widget || !view->projectChanged) continue;
+        try {
+            view->projectChanged(view->userData, view->widget.data(),
+                {root.constData(), static_cast<size_t>(root.size())});
+        } catch (...) {
+            qWarning() << "Native extension project callback threw an exception:" << view->id;
+        }
+    }
 }
 
 QList<ExtensionSettingsPageInfo> ExtensionManager::createSettingsPages(QWidget *parent) const
@@ -934,6 +1011,35 @@ bool ExtensionManager::registerSettingsPage(LoadedExtension *owner,
     return true;
 }
 
+bool ExtensionManager::registerView(LoadedExtension *owner, const NsViewSpec *view)
+{
+    const size_t requiredSize = offsetof(NsViewSpec, user_data) + sizeof(view->user_data);
+    if (!owner || !view || view->struct_size < requiredSize || !view->create) return false;
+    auto registered = std::make_unique<RegisteredView>();
+    registered->owner = owner;
+    registered->id = fromView(view->id).trimmed();
+    registered->title = fromView(view->title).trimmed();
+    registered->dockObjectName = fromView(view->dock_object_name).trimmed();
+    registered->defaultLocation = view->default_location;
+    registered->create = view->create;
+    registered->projectChanged = view->project_changed;
+    registered->userData = view->user_data;
+    static const QRegularExpression validId(
+        QStringLiteral("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"));
+    if (!validId.match(registered->id).hasMatch() || registered->title.isEmpty()
+        || !validId.match(registered->dockObjectName).hasMatch()
+        || (registered->defaultLocation != NS_VIEW_LOCATION_LEFT
+            && registered->defaultLocation != NS_VIEW_LOCATION_RIGHT
+            && registered->defaultLocation != NS_VIEW_LOCATION_BOTTOM)
+        || std::any_of(m_views.cbegin(), m_views.cend(), [&registered](const auto &existing) {
+            return existing->id.compare(registered->id, Qt::CaseInsensitive) == 0
+                || existing->dockObjectName.compare(registered->dockObjectName,
+                                                     Qt::CaseInsensitive) == 0;
+        })) return false;
+    m_views.push_back(std::move(registered));
+    return true;
+}
+
 QString ExtensionManager::extensionSetting(LoadedExtension *owner, const QString &key) const
 {
     if (!owner) return {};
@@ -1018,6 +1124,21 @@ void ExtensionManager::removeSettingsPages(LoadedExtension *owner)
     const auto firstRemoved = std::remove_if(m_settingsPages.begin(), m_settingsPages.end(),
         [owner](const auto &page) { return page->owner == owner; });
     m_settingsPages.erase(firstRemoved, m_settingsPages.end());
+}
+
+void ExtensionManager::removeViews(LoadedExtension *owner)
+{
+    const auto firstRemoved = std::remove_if(m_views.begin(), m_views.end(),
+        [owner](const auto &view) {
+            if (view->owner != owner) return false;
+            if (view->widget) {
+                QWidget *container = view->widget->parentWidget();
+                if (auto *dock = qobject_cast<QDockWidget *>(container)) delete dock;
+                else delete view->widget.data();
+            }
+            return true;
+        });
+    m_views.erase(firstRemoved, m_views.end());
 }
 
 int32_t ExtensionManager::hostRegisterCommand(void *hostContext, NsExtensionHandle extension,
@@ -1170,4 +1291,17 @@ int32_t ExtensionManager::hostShowView(void *hostContext, NsStringView viewId)
     return manager && manager->m_window
         && manager->hasPermission(owner, QStringLiteral("ui.views"))
         && manager->m_window->showExtensionView(fromView(viewId)) ? 1 : 0;
+}
+
+int32_t ExtensionManager::hostRegisterView(void *hostContext, NsExtensionHandle extension,
+                                           const NsViewSpec *view)
+{
+    auto *contextOwner = static_cast<LoadedExtension *>(hostContext);
+    auto *manager = contextOwner ? contextOwner->manager : nullptr;
+    auto *owner = static_cast<LoadedExtension *>(extension);
+    if (!manager || owner != contextOwner || manager->m_shuttingDown
+        || !manager->hasPermission(owner, QStringLiteral("ui.views"))) return 0;
+    const bool knownOwner = std::any_of(manager->m_extensions.cbegin(), manager->m_extensions.cend(),
+        [owner](const auto &candidate) { return candidate.get() == owner; });
+    return knownOwner && manager->registerView(owner, view) ? 1 : 0;
 }

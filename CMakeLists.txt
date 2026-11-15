@@ -3,7 +3,7 @@ if(POLICY CMP0141)
     cmake_policy(SET CMP0141 NEW)
 endif()
 
-project(NativeStudio VERSION 0.18.2 LANGUAGES CXX)
+project(NativeStudio VERSION 0.19.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -22,8 +22,6 @@ add_library(nativeide_core STATIC
     src/extensionmanager.h
     src/extensionmanagerdialog.cpp
     src/extensionmanagerdialog.h
-    src/gitwidget.cpp
-    src/gitwidget.h
     src/keybindingsdialog.cpp
     src/keybindingsdialog.h
     src/languagemanager.cpp
@@ -101,9 +99,12 @@ configure_file(extensions/code_tidy/extension.json
 
 add_library(native_git_extension MODULE
     extensions/git/git_extension.cpp
+    src/gitwidget.cpp
+    src/gitwidget.h
     src/extension_api.h
 )
 target_include_directories(native_git_extension PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(native_git_extension PRIVATE Qt6::Widgets)
 set_target_properties(native_git_extension PROPERTIES
     PREFIX ""
     OUTPUT_NAME "native_git"

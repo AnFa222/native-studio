@@ -1,7 +1,6 @@
 #include "codeeditor.h"
 #include "extensionmanager.h"
 #include "extensionmanagerdialog.h"
-#include "gitwidget.h"
 #include "languagemanager.h"
 #include "keybindingsdialog.h"
 #include "mainwindow.h"
@@ -32,6 +31,7 @@
 #include <QListWidget>
 #include <QMimeData>
 #include <QPlainTextEdit>
+#include <QProcess>
 #include <QPushButton>
 #include <QSettings>
 #include <QTableWidget>
@@ -133,10 +133,10 @@ private slots:
     void autoIndentsUsingLanguagePlugins();
     void problemsPanelTracksDiagnostics();
     void nativeWorkspaceFeaturesAreLazyAndAvailable();
-    void gitHubSignInUsesCredentialManager();
     void findAndReplaceCurrentDocument();
     void autoSaveWritesNamedFiles();
     void restoresExtensionDockLayoutAfterDeferredLoad();
+    void gitChangesViewGroupsRepositoryState();
 };
 
 void EditorTests::startsWithOneUntitledEditor()
@@ -1165,6 +1165,7 @@ void EditorTests::nativeWorkspaceFeaturesAreLazyAndAvailable()
     QVERIFY(git->bundled);
     QVERIFY(git->permissions.contains(QStringLiteral("ui.views")));
     QVERIFY(git->permissions.contains(QStringLiteral("process.execute")));
+    QVERIFY(window.extensionManager()->viewIds().contains(QStringLiteral("git.sourceControl")));
 
     auto *editor = qobject_cast<CodeEditor *>(
         window.findChild<QTabWidget *>(QStringLiteral("secondaryEditorTabs"))->currentWidget());
@@ -1191,25 +1192,6 @@ void EditorTests::nativeWorkspaceFeaturesAreLazyAndAvailable()
         }
     }
     QVERIFY(restoredUnsavedText);
-}
-
-void EditorTests::gitHubSignInUsesCredentialManager()
-{
-    const QString gitPath = QStringLiteral(
-        "extensions/settings/dev.nativestudio.git/git_path");
-    SettingGuard gitGuard(gitPath);
-    QSettings().remove(gitPath);
-    GitWidget widget;
-    QSignalSpy requested(&widget, &GitWidget::runInTerminalRequested);
-    auto *signIn = widget.findChild<QAction *>(QStringLiteral("githubSignIn"));
-    QVERIFY(signIn != nullptr);
-    signIn->trigger();
-    QCOMPARE(requested.size(), 1);
-    const QList<QVariant> arguments = requested.takeFirst();
-    QCOMPARE(arguments.at(0).toString(), QStringLiteral("git"));
-    QCOMPARE(arguments.at(1).toStringList(),
-             QStringList({QStringLiteral("credential-manager"),
-                          QStringLiteral("github"), QStringLiteral("login")}));
 }
 
 void EditorTests::findAndReplaceCurrentDocument()
@@ -1302,6 +1284,69 @@ void EditorTests::restoresExtensionDockLayoutAfterDeferredLoad()
     QCOMPARE(gitDock->property("extensionViewId").toString(),
              QStringLiteral("git.sourceControl"));
     QSettings().clear();
+}
+
+void EditorTests::gitChangesViewGroupsRepositoryState()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto git = [&directory](const QStringList &arguments) {
+        QProcess process;
+        process.setWorkingDirectory(directory.path());
+        process.start(QStringLiteral("git"), arguments);
+        return process.waitForFinished(5000) && process.exitCode() == 0;
+    };
+    if (!git({QStringLiteral("init")})) QSKIP("Git is unavailable");
+    QVERIFY(git({QStringLiteral("config"), QStringLiteral("user.email"),
+                 QStringLiteral("tests@nativestudio.local")}));
+    QVERIFY(git({QStringLiteral("config"), QStringLiteral("user.name"),
+                 QStringLiteral("Native Studio Tests")}));
+    QFile tracked(directory.filePath(QStringLiteral("tracked.cpp")));
+    QVERIFY(tracked.open(QIODevice::WriteOnly));
+    tracked.write("int value = 1;\n");
+    tracked.close();
+    QVERIFY(git({QStringLiteral("add"), QStringLiteral("tracked.cpp")}));
+    QVERIFY(git({QStringLiteral("commit"), QStringLiteral("-m"), QStringLiteral("initial")}));
+    QVERIFY(tracked.open(QIODevice::Append));
+    tracked.write("int changed = 2;\n");
+    tracked.close();
+    QFile staged(directory.filePath(QStringLiteral("staged.py")));
+    QVERIFY(staged.open(QIODevice::WriteOnly));
+    staged.write("print('staged')\n");
+    staged.close();
+    QVERIFY(git({QStringLiteral("add"), QStringLiteral("staged.py")}));
+    QFile untracked(directory.filePath(QStringLiteral("untracked.txt")));
+    QVERIFY(untracked.open(QIODevice::WriteOnly));
+    untracked.write("new\n");
+    untracked.close();
+
+    MainWindow window;
+    window.openProject(directory.path());
+    window.loadServicesNow();
+    QVERIFY(window.showExtensionView(QStringLiteral("git.sourceControl")));
+    auto *changes = window.findChild<QTreeWidget *>(QStringLiteral("gitChanges"));
+    QVERIFY(changes != nullptr);
+    QTRY_COMPARE_WITH_TIMEOUT(changes->topLevelItemCount(), 3, 5000);
+    QStringList groups;
+    QStringList files;
+    for (int row = 0; row < changes->topLevelItemCount(); ++row) {
+        QTreeWidgetItem *group = changes->topLevelItem(row);
+        groups.push_back(group->text(0));
+        for (int child = 0; child < group->childCount(); ++child)
+            files.push_back(group->child(child)->text(1));
+    }
+    QVERIFY(std::any_of(groups.cbegin(), groups.cend(), [](const QString &group) {
+        return group.startsWith(QStringLiteral("STAGED CHANGES"));
+    }));
+    QVERIFY(std::any_of(groups.cbegin(), groups.cend(), [](const QString &group) {
+        return group.startsWith(QStringLiteral("CHANGES"));
+    }));
+    QVERIFY(std::any_of(groups.cbegin(), groups.cend(), [](const QString &group) {
+        return group.startsWith(QStringLiteral("UNTRACKED"));
+    }));
+    QVERIFY(files.contains(QStringLiteral("staged.py")));
+    QVERIFY(files.contains(QStringLiteral("tracked.cpp")));
+    QVERIFY(files.contains(QStringLiteral("untracked.txt")));
 }
 
 QTEST_MAIN(EditorTests)

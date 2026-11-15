@@ -15,6 +15,14 @@ class QMenu;
 class QWidget;
 class MainWindow;
 
+struct ExtensionViewInfo
+{
+    QString id;
+    QString title;
+    QString dockObjectName;
+    uint32_t defaultLocation = NS_VIEW_LOCATION_LEFT;
+};
+
 struct NativeExtensionInfo
 {
     QString id;
@@ -57,6 +65,10 @@ public:
     [[nodiscard]] QList<NativeExtensionInfo> loadedExtensions() const;
     [[nodiscard]] QList<NativeExtensionInfo> installedExtensions() const;
     [[nodiscard]] QStringList commandIds() const;
+    [[nodiscard]] QStringList viewIds() const;
+    [[nodiscard]] bool viewInfo(const QString &viewId, ExtensionViewInfo *result) const;
+    QWidget *createView(const QString &viewId, QWidget *parent, const QString &projectRoot);
+    void notifyProjectChanged(const QString &projectRoot);
     [[nodiscard]] QList<ExtensionSettingsPageInfo> createSettingsPages(QWidget *parent) const;
     void notifyDocumentWillSave();
     bool importExtension(const QString &manifestPath, QString *error = nullptr,
@@ -75,6 +87,7 @@ private:
     struct RegisteredCommand;
     struct RegisteredEvent;
     struct RegisteredSettingsPage;
+    struct RegisteredView;
     struct PendingManifest {
         QString filePath;
         bool bundled = false;
@@ -98,10 +111,12 @@ private:
     bool registerEvent(LoadedExtension *owner, uint32_t eventType,
                        NsEventCallback callback, void *userData);
     bool registerSettingsPage(LoadedExtension *owner, const NsSettingsPageSpec *page);
+    bool registerView(LoadedExtension *owner, const NsViewSpec *view);
     void triggerCommand(RegisteredCommand *command);
     void removeCommands(LoadedExtension *owner);
     void removeEvents(LoadedExtension *owner);
     void removeSettingsPages(LoadedExtension *owner);
+    void removeViews(LoadedExtension *owner);
     [[nodiscard]] QString extensionSetting(LoadedExtension *owner, const QString &key) const;
     [[nodiscard]] bool hasPermission(const LoadedExtension *owner, const QString &permission) const;
     [[nodiscard]] QMenu *commandMenu(const QString &category);
@@ -125,6 +140,8 @@ private:
     static size_t hostGetExtensionSetting(void *hostContext, NsExtensionHandle extension,
                                           NsStringView key, char *buffer, size_t capacity);
     static int32_t hostShowView(void *hostContext, NsStringView viewId);
+    static int32_t hostRegisterView(void *hostContext, NsExtensionHandle extension,
+                                    const NsViewSpec *view);
 
     MainWindow *m_window = nullptr;
     QMenu *m_extensionsMenu = nullptr;
@@ -133,6 +150,7 @@ private:
     std::vector<std::unique_ptr<RegisteredCommand>> m_commands;
     std::vector<std::unique_ptr<RegisteredEvent>> m_events;
     std::vector<std::unique_ptr<RegisteredSettingsPage>> m_settingsPages;
+    std::vector<std::unique_ptr<RegisteredView>> m_views;
     QList<PendingManifest> m_pendingManifests;
     int m_asyncLoadedCount = 0;
     bool m_asyncLoading = false;

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "extension_api.h"
+
 #include <QWidget>
 
 #include <functional>
@@ -17,14 +19,10 @@ class GitWidget final : public QWidget
     Q_OBJECT
 
 public:
-    explicit GitWidget(QWidget *parent = nullptr);
+    explicit GitWidget(const NsHostApi *hostApi, NsExtensionHandle extension,
+                       QWidget *parent = nullptr);
     ~GitWidget() override;
     void setRepositoryPath(const QString &path);
-
-signals:
-    void fileActivated(const QString &path);
-    void runInTerminalRequested(const QString &program, const QStringList &arguments,
-                                const QString &workingDirectory);
 
 private slots:
     void refresh();
@@ -51,10 +49,14 @@ private slots:
 private:
     void runGit(const QStringList &arguments, const std::function<void(const QString &)> &finished);
     void refreshGitHubStatus();
+    void runInTerminal(const QString &program, const QStringList &arguments,
+                       const QString &workingDirectory);
     [[nodiscard]] QString configuredGit() const;
     [[nodiscard]] QString selectedPath() const;
 
     QString m_rootPath;
+    const NsHostApi *m_hostApi = nullptr;
+    NsExtensionHandle m_extensionHandle = nullptr;
     QLabel *m_branch = nullptr;
     QLabel *m_githubAccount = nullptr;
     QTreeWidget *m_files = nullptr;

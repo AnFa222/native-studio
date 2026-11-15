@@ -3,7 +3,6 @@
 #include "codeeditor.h"
 #include "extensionmanager.h"
 #include "extensionmanagerdialog.h"
-#include "gitwidget.h"
 #include "keybindingsdialog.h"
 #include "languagemanager.h"
 #include "pluginmanagerdialog.h"
@@ -340,11 +339,10 @@ void MainWindow::restoreSavedExtensionViews()
         QStringLiteral("window/visibleExtensionViews")).toStringList();
     QList<QDockWidget *> restoredDocks;
     for (const QString &viewId : visibleViews) {
-        if (viewId == QStringLiteral("git.sourceControl")) {
-            QDockWidget *dock = ensureGitDock();
-            if (!m_projectDirectory.isEmpty()) m_gitWidget->setRepositoryPath(m_projectDirectory);
-            restoredDocks.push_back(dock);
-        }
+        if (!showExtensionView(viewId)) continue;
+        for (QDockWidget *dock : findChildren<QDockWidget *>())
+            if (dock->property("extensionViewId").toString() == viewId)
+                restoredDocks.push_back(dock);
     }
     if (!restoredDocks.isEmpty()) restoreState(m_savedWindowState);
     for (QDockWidget *dock : restoredDocks) dock->show();
@@ -415,11 +413,30 @@ bool MainWindow::runExtensionProcess(const QString &program, const QStringList &
 
 bool MainWindow::showExtensionView(const QString &viewId)
 {
-    if (viewId == QStringLiteral("git.sourceControl")) {
-        showGit();
-        return m_gitDock != nullptr;
+    for (QDockWidget *dock : findChildren<QDockWidget *>()) {
+        if (dock->property("extensionViewId").toString() != viewId) continue;
+        dock->show();
+        dock->raise();
+        return true;
     }
-    return false;
+    ExtensionViewInfo info;
+    if (!m_extensionManager->viewInfo(viewId, &info)) return false;
+    auto *dock = new QDockWidget(info.title, this);
+    dock->setObjectName(info.dockObjectName);
+    dock->setProperty("extensionViewId", viewId);
+    QWidget *view = m_extensionManager->createView(viewId, dock, m_projectDirectory);
+    if (!view) {
+        delete dock;
+        return false;
+    }
+    dock->setWidget(view);
+    Qt::DockWidgetArea area = Qt::LeftDockWidgetArea;
+    if (info.defaultLocation == NS_VIEW_LOCATION_RIGHT) area = Qt::RightDockWidgetArea;
+    else if (info.defaultLocation == NS_VIEW_LOCATION_BOTTOM) area = Qt::BottomDockWidgetArea;
+    if (!m_windowLayoutRestored || !restoreDockWidget(dock)) addDockWidget(area, dock);
+    dock->show();
+    dock->raise();
+    return true;
 }
 
 void MainWindow::createActions()
@@ -922,7 +939,7 @@ void MainWindow::openProject(const QString &directory)
         if (auto *terminal = qobject_cast<TerminalWidget *>(m_terminalTabs->widget(index)))
             terminal->setWorkingDirectory(m_projectDirectory);
     if (m_projectSearch) m_projectSearch->setRootPath(m_projectDirectory);
-    if (m_gitWidget) m_gitWidget->setRepositoryPath(m_projectDirectory);
+    m_extensionManager->notifyProjectChanged(m_projectDirectory);
     setWindowTitle(tr("%1 — Native Studio").arg(info.fileName()));
     statusBar()->showMessage(tr("Opened project %1").arg(QDir::toNativeSeparators(m_projectDirectory)), 4000);
 }
@@ -1276,37 +1293,6 @@ void MainWindow::applyStoredKeybindings()
         if (settings.contains(key))
             action->setShortcut(QKeySequence(settings.value(key).toString()));
     }
-}
-
-QDockWidget *MainWindow::ensureGitDock()
-{
-    if (!m_gitDock) {
-        m_gitWidget = new GitWidget(this);
-        m_gitDock = new QDockWidget(tr("SOURCE CONTROL"), this);
-        m_gitDock->setObjectName(QStringLiteral("gitDock"));
-        m_gitDock->setProperty("extensionViewId", QStringLiteral("git.sourceControl"));
-        m_gitDock->setWidget(m_gitWidget);
-        if (!m_windowLayoutRestored || !restoreDockWidget(m_gitDock))
-            addDockWidget(Qt::LeftDockWidgetArea, m_gitDock);
-        connect(m_gitWidget, &GitWidget::fileActivated, this, &MainWindow::openFile);
-        connect(m_gitWidget, &GitWidget::runInTerminalRequested, this,
-                [this](const QString &program, const QStringList &arguments,
-                       const QString &workingDirectory) {
-            m_terminalDock->show();
-            m_terminalDock->raise();
-            m_terminal->executeProgram(program, arguments, workingDirectory);
-        });
-    }
-    return m_gitDock;
-}
-
-void MainWindow::showGit()
-{
-    if (m_projectDirectory.isEmpty()) { chooseProject(); if (m_projectDirectory.isEmpty()) return; }
-    ensureGitDock();
-    m_gitWidget->setRepositoryPath(m_projectDirectory);
-    m_gitDock->show();
-    m_gitDock->raise();
 }
 
 TerminalWidget *MainWindow::createTerminal(const QString &title, const QString &program,

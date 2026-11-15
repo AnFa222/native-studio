@@ -1,4 +1,5 @@
 #include "extension_api.h"
+#include "gitwidget.h"
 
 #include <cstddef>
 #include <string>
@@ -78,11 +79,30 @@ void push(void *, const NsCommandContext *context)
     runGitRemoteCommand(context, "push");
 }
 
+void *createChangesView(void *, void *nativeParent, NsStringView projectRoot)
+{
+    auto *widget = new GitWidget(hostApi, extensionHandle, static_cast<QWidget *>(nativeParent));
+    if (projectRoot.data && projectRoot.size > 0)
+        widget->setRepositoryPath(QString::fromUtf8(projectRoot.data,
+            static_cast<qsizetype>(projectRoot.size)));
+    return widget;
+}
+
+void changesProjectChanged(void *, void *nativeView, NsStringView projectRoot)
+{
+    auto *widget = static_cast<GitWidget *>(nativeView);
+    if (!widget) return;
+    widget->setRepositoryPath(projectRoot.data
+        ? QString::fromUtf8(projectRoot.data, static_cast<qsizetype>(projectRoot.size))
+        : QString{});
+}
+
 int32_t activate(void *, const NsHostApi *host, NsExtensionHandle extension)
 {
-    const size_t requiredSize = offsetof(NsHostApi, show_view) + sizeof(host->show_view);
+    const size_t requiredSize = offsetof(NsHostApi, register_view) + sizeof(host->register_view);
     if (!host || host->abi_version != NS_EXTENSION_ABI_VERSION
-        || host->struct_size < requiredSize || !host->register_command || !host->show_view) {
+        || host->struct_size < requiredSize || !host->register_command || !host->show_view
+        || !host->register_view) {
         return -1;
     }
     hostApi = host;
@@ -118,10 +138,16 @@ int32_t activate(void *, const NsHostApi *host, NsExtensionHandle extension)
         sizeof(NsCommandSpec), view("dev.nativestudio.git.push"),
         view("Push"), view("Git"), {nullptr, 0}, &push, nullptr
     };
+    const NsViewSpec changesView{
+        sizeof(NsViewSpec), view("git.sourceControl"), view("SOURCE CONTROL"),
+        view("gitDock"), NS_VIEW_LOCATION_LEFT, &createChangesView,
+        &changesProjectChanged, nullptr
+    };
     host->log(host->host_context, NS_LOG_INFO, view("Activated bundled Git extension"));
     if (host->register_settings_page
         && !host->register_settings_page(host->host_context, extension, &settingsPage)) return -1;
-    return host->register_command(host->host_context, extension, &command)
+    return host->register_view(host->host_context, extension, &changesView)
+        && host->register_command(host->host_context, extension, &command)
         && host->register_command(host->host_context, extension, &signInCommand)
         && host->register_command(host->host_context, extension, &pullCommand)
         && host->register_command(host->host_context, extension, &pushCommand) ? 0 : -1;
@@ -138,7 +164,7 @@ const NsExtensionDescriptor descriptor{
     NS_EXTENSION_ABI_VERSION,
     view("dev.nativestudio.git"),
     view("Git"),
-    view("1.2.1"),
+    view("1.3.0"),
     nullptr,
     &activate,
     &deactivate

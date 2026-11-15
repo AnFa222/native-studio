@@ -25,7 +25,6 @@ class QTreeView;
 class QToolButton;
 class QToolBar;
 class ProjectSearchWidget;
-class GitWidget;
 
 class MainWindow final : public QMainWindow
 {
@@ -82,7 +81,6 @@ private slots:
     void showProjectSearch();
     void splitEditorRight();
     void showKeybindings();
-    void showGit();
     void newTerminal();
     void newPowerShellTerminal();
     void showFind();
@@ -119,7 +117,6 @@ private:
     void updateLanguageStatusWidgets();
     void updateStartupStatus();
     void restoreSavedExtensionViews();
-    QDockWidget *ensureGitDock();
     void updateProblems(CodeEditor *editor);
     void updateOutline(CodeEditor *editor);
     void saveSession();
@@ -151,8 +148,6 @@ private:
     QTreeWidget *m_outlineTree = nullptr;
     QDockWidget *m_searchDock = nullptr;
     ProjectSearchWidget *m_projectSearch = nullptr;
-    QDockWidget *m_gitDock = nullptr;
-    GitWidget *m_gitWidget = nullptr;
     QAction *m_runAction = nullptr;
     QToolBar *m_findBar = nullptr;
     QLineEdit *m_findText = nullptr;

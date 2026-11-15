@@ -4,8 +4,10 @@
 #include <QDir>
 #include <QDesktopServices>
 #include <QFileDialog>
+#include <QFile>
 #include <QFileInfo>
 #include <QHBoxLayout>
+#include <QHeaderView>
 #include <QLabel>
 #include <QInputDialog>
 #include <QLineEdit>
@@ -16,7 +18,6 @@
 #include <QPaintEvent>
 #include <QPlainTextEdit>
 #include <QProcess>
-#include <QSettings>
 #include <QToolButton>
 #include <QTreeWidget>
 #include <QVBoxLayout>
@@ -130,8 +131,9 @@ QAction *addRepositoryAction(QMenu *menu, const QString &text, const char *objec
 }
 }
 
-GitWidget::GitWidget(QWidget *parent)
-    : QWidget(parent), m_branch(new QLabel(tr("No repository"), this))
+GitWidget::GitWidget(const NsHostApi *hostApi, NsExtensionHandle extension, QWidget *parent)
+    : QWidget(parent), m_hostApi(hostApi), m_extensionHandle(extension)
+    , m_branch(new QLabel(tr("No repository"), this))
     , m_githubAccount(new QLabel(tr("GitHub: Not signed in"), this))
     , m_files(new QTreeWidget(this)), m_diff(new QPlainTextEdit(this))
     , m_message(new QLineEdit(this))
@@ -143,7 +145,12 @@ GitWidget::GitWidget(QWidget *parent)
     m_files->setObjectName(QStringLiteral("gitChanges"));
     m_diff->setObjectName(QStringLiteral("gitDiff"));
     m_message->setObjectName(QStringLiteral("gitCommitMessage"));
-    m_files->setHeaderLabels({tr("Status"), tr("File")});
+    m_files->setColumnCount(2);
+    m_files->setHeaderHidden(true);
+    m_files->setRootIsDecorated(true);
+    m_files->setIndentation(14);
+    m_files->setColumnWidth(0, 38);
+    m_files->header()->setStretchLastSection(true);
     m_diff->setReadOnly(true);
     m_message->setPlaceholderText(tr("Commit message"));
     m_message->setClearButtonEnabled(true);
@@ -231,7 +238,12 @@ GitWidget::GitWidget(QWidget *parent)
     connect(m_message, &QLineEdit::returnPressed, this, &GitWidget::commit);
     connect(m_files, &QTreeWidget::itemClicked, this, [this](QTreeWidgetItem *item) { showDiff(item); });
     connect(m_files, &QTreeWidget::itemActivated, this, [this](QTreeWidgetItem *item) {
-        if (item) emit fileActivated(QDir(m_rootPath).filePath(item->data(0, Qt::UserRole).toString()));
+        if (!item || !m_hostApi || !m_hostApi->open_file) return;
+        const QString relativePath = item->data(0, Qt::UserRole).toString();
+        if (relativePath.isEmpty()) return;
+        const QByteArray path = QDir(m_rootPath).filePath(relativePath).toUtf8();
+        m_hostApi->open_file(m_hostApi->host_context,
+            {path.constData(), static_cast<size_t>(path.size())});
     });
 }
 
@@ -249,6 +261,13 @@ GitWidget::~GitWidget()
 
 void GitWidget::setRepositoryPath(const QString &path)
 {
+    if (path.trimmed().isEmpty()) {
+        m_rootPath.clear();
+        m_files->clear();
+        m_diff->clear();
+        m_branch->setText(tr("No repository"));
+        return;
+    }
     m_rootPath = QFileInfo(path).absoluteFilePath();
     refresh();
 }
@@ -278,10 +297,37 @@ void GitWidget::runGit(const QStringList &arguments,
 
 QString GitWidget::configuredGit() const
 {
-    const QString value = QSettings().value(
-        QStringLiteral("extensions/settings/dev.nativestudio.git/git_path"),
-        QStringLiteral("git")).toString().trimmed();
+    if (!m_hostApi || !m_hostApi->get_extension_setting || !m_extensionHandle)
+        return QStringLiteral("git");
+    constexpr char key[] = "git_path";
+    const NsStringView keyView{key, sizeof(key) - 1};
+    const size_t required = m_hostApi->get_extension_setting(
+        m_hostApi->host_context, m_extensionHandle, keyView, nullptr, 0);
+    QByteArray bytes(static_cast<qsizetype>(required), Qt::Uninitialized);
+    if (required > 0)
+        m_hostApi->get_extension_setting(m_hostApi->host_context, m_extensionHandle,
+                                         keyView, bytes.data(), required);
+    const QString value = QString::fromUtf8(bytes).trimmed();
     return value.isEmpty() ? QStringLiteral("git") : value;
+}
+
+void GitWidget::runInTerminal(const QString &program, const QStringList &arguments,
+                              const QString &workingDirectory)
+{
+    if (!m_hostApi || !m_hostApi->run_process) return;
+    const QByteArray programBytes = program.toUtf8();
+    const QByteArray directoryBytes = workingDirectory.toUtf8();
+    QList<QByteArray> storage;
+    storage.reserve(arguments.size());
+    for (const QString &argument : arguments) storage.push_back(argument.toUtf8());
+    QList<NsStringView> views;
+    views.reserve(storage.size());
+    for (const QByteArray &argument : storage)
+        views.push_back({argument.constData(), static_cast<size_t>(argument.size())});
+    m_hostApi->run_process(m_hostApi->host_context,
+        {programBytes.constData(), static_cast<size_t>(programBytes.size())},
+        views.constData(), static_cast<size_t>(views.size()),
+        {directoryBytes.constData(), static_cast<size_t>(directoryBytes.size())});
 }
 
 void GitWidget::refresh()
@@ -297,6 +343,25 @@ void GitWidget::refresh()
             return;
         }
         m_branch->setText(lines.first().mid(3));
+        auto *stagedGroup = new QTreeWidgetItem(m_files, {tr("STAGED CHANGES")});
+        auto *workingGroup = new QTreeWidgetItem(m_files, {tr("CHANGES")});
+        auto *untrackedGroup = new QTreeWidgetItem(m_files, {tr("UNTRACKED")});
+        stagedGroup->setData(0, Qt::UserRole + 3, true);
+        workingGroup->setData(0, Qt::UserRole + 3, true);
+        untrackedGroup->setData(0, Qt::UserRole + 3, true);
+        int stagedCount = 0;
+        int workingCount = 0;
+        int untrackedCount = 0;
+        const auto addFile = [](QTreeWidgetItem *group, QChar status, const QString &path,
+                                bool staged, bool untracked) {
+            auto *item = new QTreeWidgetItem(group);
+            item->setText(0, QString(status));
+            item->setText(1, path);
+            item->setData(0, Qt::UserRole, path);
+            item->setData(0, Qt::UserRole + 1, staged);
+            item->setData(0, Qt::UserRole + 2, untracked);
+            item->setToolTip(1, path);
+        };
         for (int index = 1; index < lines.size(); ++index) {
             const QString line = lines.at(index);
             if (line.size() < 4) continue;
@@ -304,11 +369,30 @@ void GitWidget::refresh()
             QString path = line.mid(3);
             const int arrow = path.indexOf(QStringLiteral(" -> "));
             if (arrow >= 0) path = path.mid(arrow + 4);
-            auto *item = new QTreeWidgetItem(m_files);
-            item->setText(0, status);
-            item->setText(1, path);
-            item->setData(0, Qt::UserRole, path);
+            if (status == QStringLiteral("??")) {
+                addFile(untrackedGroup, QLatin1Char('U'), path, false, true);
+                ++untrackedCount;
+                continue;
+            }
+            if (status.at(0) != QLatin1Char(' ')) {
+                addFile(stagedGroup, status.at(0), path, true, false);
+                ++stagedCount;
+            }
+            if (status.at(1) != QLatin1Char(' ')) {
+                addFile(workingGroup, status.at(1), path, false, false);
+                ++workingCount;
+            }
         }
+        stagedGroup->setText(0, tr("STAGED CHANGES (%1)").arg(stagedCount));
+        workingGroup->setText(0, tr("CHANGES (%1)").arg(workingCount));
+        untrackedGroup->setText(0, tr("UNTRACKED (%1)").arg(untrackedCount));
+        for (QTreeWidgetItem *group : {stagedGroup, workingGroup, untrackedGroup}) {
+            if (group->childCount() == 0) delete group;
+            else group->setExpanded(true);
+        }
+        for (int row = 0; row < m_files->topLevelItemCount(); ++row)
+            m_files->setFirstColumnSpanned(row, QModelIndex(), true);
+        m_files->setColumnWidth(0, 38);
     });
 }
 
@@ -335,15 +419,14 @@ void GitWidget::refreshGitHubStatus()
 
 void GitWidget::signInToGitHub()
 {
-    emit runInTerminalRequested(configuredGit(),
-        {QStringLiteral("credential-manager"), QStringLiteral("github"),
-         QStringLiteral("login")}, m_rootPath);
+    runInTerminal(configuredGit(), {QStringLiteral("credential-manager"),
+        QStringLiteral("github"), QStringLiteral("login")}, m_rootPath);
 }
 
 void GitWidget::pull()
 {
     if (m_rootPath.isEmpty()) return;
-    emit runInTerminalRequested(configuredGit(),
+    runInTerminal(configuredGit(),
         {QStringLiteral("-C"), m_rootPath, QStringLiteral("pull"), QStringLiteral("--ff-only")},
         m_rootPath);
 }
@@ -351,7 +434,7 @@ void GitWidget::pull()
 void GitWidget::push()
 {
     if (m_rootPath.isEmpty()) return;
-    emit runInTerminalRequested(configuredGit(),
+    runInTerminal(configuredGit(),
         {QStringLiteral("-C"), m_rootPath, QStringLiteral("push")}, m_rootPath);
 }
 
@@ -359,7 +442,7 @@ void GitWidget::restoreSelected()
 {
     const QString path = selectedPath();
     if (path.isEmpty()) return;
-    if (m_files->currentItem()->text(0).contains(QLatin1Char('?'))) {
+    if (m_files->currentItem()->data(0, Qt::UserRole + 2).toBool()) {
         QMessageBox::information(this, tr("Cannot Restore Untracked File"),
             tr("Git has no committed version of this untracked file."));
         return;
@@ -457,7 +540,7 @@ void GitWidget::cloneRepository()
     const QString parent = QFileDialog::getExistingDirectory(this, tr("Clone Into Folder"),
                                                                m_rootPath);
     if (parent.isEmpty()) return;
-    emit runInTerminalRequested(configuredGit(),
+    runInTerminal(configuredGit(),
         {QStringLiteral("clone"), remote}, parent);
 }
 
@@ -486,7 +569,22 @@ void GitWidget::showDiff(QTreeWidgetItem *item)
 {
     if (!item) return;
     const QString path = item->data(0, Qt::UserRole).toString();
-    runGit({QStringLiteral("diff"), QStringLiteral("--"), path},
+    if (path.isEmpty()) return;
+    if (item->data(0, Qt::UserRole + 2).toBool()) {
+        QFile file(QDir(m_rootPath).filePath(path));
+        if (file.open(QIODevice::ReadOnly)) {
+            constexpr qint64 previewLimit = 1024 * 1024;
+            const QByteArray content = file.read(previewLimit);
+            m_diff->setPlainText(tr("Untracked file — preview\n\n")
+                                 + QString::fromUtf8(content));
+        }
+        return;
+    }
+    QStringList arguments{QStringLiteral("diff")};
+    if (item->data(0, Qt::UserRole + 1).toBool())
+        arguments.push_back(QStringLiteral("--cached"));
+    arguments << QStringLiteral("--") << path;
+    runGit(arguments,
            [this](const QString &output) { m_diff->setPlainText(output); });
 }
 
@@ -500,7 +598,7 @@ void GitWidget::stageSelected()
 void GitWidget::unstageSelected()
 {
     const QString path = selectedPath();
-    if (path.isEmpty()) return;
+    if (path.isEmpty() || !m_files->currentItem()->data(0, Qt::UserRole + 1).toBool()) return;
     runGit({QStringLiteral("restore"), QStringLiteral("--staged"), QStringLiteral("--"), path},
            [this](const QString &) { refresh(); });
 }
