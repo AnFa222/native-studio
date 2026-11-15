@@ -2,11 +2,11 @@
   "manifestVersion": 1,
   "id": "dev.nativestudio.python_variable_explorer",
   "name": "Python Variable Explorer",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "abiVersion": 1,
   "description": "Runs the active Python file in an isolated process and displays its resulting global variables in a native view.",
   "author": "Native Studio",
-  "permissions": ["ui.commands", "ui.views", "process.execute", "settings", "filesystem.read"],
+  "permissions": ["ui.commands", "ui.views", "process.execute", "settings", "filesystem.read", "editor.read"],
   "binary": {
     "windows": "native_python_variable_explorer.dll",
     "linux": "native_python_variable_explorer.so",

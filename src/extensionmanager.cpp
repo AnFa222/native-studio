@@ -115,6 +115,7 @@ ExtensionManager::ExtensionManager(MainWindow *window, QMenu *extensionsMenu, QO
     m_hostApi.show_view = &ExtensionManager::hostShowView;
     m_hostApi.register_view = &ExtensionManager::hostRegisterView;
     m_hostApi.set_file_decorations = &ExtensionManager::hostSetFileDecorations;
+    m_hostApi.get_active_document_path = &ExtensionManager::hostGetActiveDocumentPath;
 }
 
 ExtensionManager::~ExtensionManager()
@@ -1250,6 +1251,20 @@ size_t ExtensionManager::hostGetActiveDocumentText(void *hostContext, char *buff
     const size_t required = static_cast<size_t>(text.size());
     if (buffer && capacity >= required && required > 0)
         std::memcpy(buffer, text.constData(), required);
+    return required;
+}
+
+size_t ExtensionManager::hostGetActiveDocumentPath(void *hostContext, char *buffer,
+                                                   size_t capacity)
+{
+    auto *owner = static_cast<LoadedExtension *>(hostContext);
+    auto *manager = owner ? owner->manager : nullptr;
+    if (!manager || !manager->m_window
+        || !manager->hasPermission(owner, QStringLiteral("editor.read"))) return 0;
+    const QByteArray path = manager->m_window->activeFilePath().toUtf8();
+    const size_t required = static_cast<size_t>(path.size());
+    if (buffer && capacity >= required && required > 0)
+        std::memcpy(buffer, path.constData(), required);
     return required;
 }
 

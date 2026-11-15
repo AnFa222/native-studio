@@ -522,18 +522,18 @@ void EditorTests::pythonVariableExplorerRunsIndependently()
     QVERIFY(window.extensionManager()->viewIds().contains(
         QStringLiteral("python.variableExplorer")));
 
-    auto *action = window.findChild<QAction *>(QStringLiteral(
-        "extensionCommand.dev.nativestudio.python_variable_explorer.open"));
-    QVERIFY(action != nullptr);
-    action->trigger();
+    QVERIFY(window.showExtensionView(QStringLiteral("python.variableExplorer")));
     auto *explorer = window.findChild<QWidget *>(QStringLiteral("pythonVariableExplorer"));
     QVERIFY(explorer != nullptr);
     auto *run = explorer->findChild<QPushButton *>(QStringLiteral("variableExplorerRun"));
     auto *tree = explorer->findChild<QTreeWidget *>(QStringLiteral("variableExplorerTree"));
     auto *status = explorer->findChild<QLabel *>(QStringLiteral("variableExplorerStatus"));
+    auto *fileLabel = explorer->findChild<QLabel *>(QStringLiteral("variableExplorerFile"));
     QVERIFY(run != nullptr);
     QVERIFY(tree != nullptr);
     QVERIFY(status != nullptr);
+    QVERIFY(fileLabel != nullptr);
+    QVERIFY(fileLabel->text().contains(QStringLiteral("variables.py")));
     run->click();
     QTRY_VERIFY_WITH_TIMEOUT(status->text().contains(QStringLiteral("Captured")), 5000);
     QVERIFY(tree->findItems(QStringLiteral("answer"), Qt::MatchExactly, 0).size() == 1);

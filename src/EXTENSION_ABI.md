@@ -138,6 +138,7 @@ Extensions shipped with Native Studio are installed under `bin/extensions/bundle
 - `show_view`: open a registered view by stable identifier. Views remain lazy and are created only when requested.
 - `register_view`: register a persistent native Qt dock view, including its stable ID, title, dock object name, default location, lazy widget factory, and optional project-change callback.
 - `set_file_decorations`: atomically replace an extension's Explorer decorations with modified, added, deleted, untracked, or conflict states. Passing an empty array clears them.
+- `get_active_document_path`: copy the active document's UTF-8 path into a caller-owned buffer. Call with a null buffer first to query its byte size. This lets restored views resolve the current file without relying on command context.
 
 Command callbacks receive the active file path, project root, and document-modified state without an additional host query.
 

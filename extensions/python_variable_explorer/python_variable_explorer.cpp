@@ -16,10 +16,22 @@ NsExtensionHandle extensionHandle = nullptr;
 VariableExplorerWidget *activeView = nullptr;
 QString selectedFile;
 
+QString activeDocumentPath()
+{
+    if (!hostApi || !hostApi->get_active_document_path) return {};
+    const size_t required = hostApi->get_active_document_path(hostApi->host_context, nullptr, 0);
+    if (required == 0) return {};
+    QByteArray path(qsizetype(required), Qt::Uninitialized);
+    hostApi->get_active_document_path(hostApi->host_context, path.data(), required);
+    return QString::fromUtf8(path);
+}
+
 void *createVariableView(void *, void *nativeParent, NsStringView)
 {
     activeView = new VariableExplorerWidget(static_cast<QWidget *>(nativeParent));
-    if (!selectedFile.isEmpty()) activeView->setScriptPath(selectedFile);
+    activeView->setPathProvider(&activeDocumentPath);
+    if (activeDocumentPath().isEmpty() && !selectedFile.isEmpty())
+        activeView->setScriptPath(selectedFile);
     return activeView;
 }
 
@@ -44,10 +56,12 @@ void openVariableExplorer(void *, const NsCommandContext *context)
 
 int32_t activate(void *, const NsHostApi *host, NsExtensionHandle extension)
 {
-    const size_t requiredSize = offsetof(NsHostApi, register_view) + sizeof(host->register_view);
+    const size_t requiredSize = offsetof(NsHostApi, get_active_document_path)
+        + sizeof(host->get_active_document_path);
     if (!host || host->abi_version != NS_EXTENSION_ABI_VERSION
         || host->struct_size < requiredSize || !host->register_command
-        || !host->register_view || !host->show_view) return -1;
+        || !host->register_view || !host->show_view
+        || !host->get_active_document_path) return -1;
     hostApi = host;
     extensionHandle = extension;
     const NsSettingSpec settings[]{
@@ -86,7 +100,7 @@ void deactivate(void *)
 const NsExtensionDescriptor descriptor{
     sizeof(NsExtensionDescriptor), NS_EXTENSION_ABI_VERSION,
     view("dev.nativestudio.python_variable_explorer"), view("Python Variable Explorer"),
-    view("1.0.0"), nullptr, &activate, &deactivate
+    view("1.0.1"), nullptr, &activate, &deactivate
 };
 }
 

@@ -98,8 +98,21 @@ void VariableExplorerWidget::setScriptPath(const QString &path)
         : tr("Ready to run the file in an isolated Python process."));
 }
 
+void VariableExplorerWidget::setPathProvider(std::function<QString()> provider)
+{
+    m_pathProvider = std::move(provider);
+    if (m_pathProvider) {
+        const QString path = m_pathProvider();
+        if (!path.isEmpty()) setScriptPath(path);
+    }
+}
+
 void VariableExplorerWidget::runScript()
 {
+    if (m_pathProvider) {
+        const QString path = m_pathProvider();
+        if (!path.isEmpty()) setScriptPath(path);
+    }
     if (m_process->state() != QProcess::NotRunning || m_scriptPath.isEmpty()) return;
     const QFileInfo file(m_scriptPath);
     if (!file.isFile() || (file.suffix().compare(QStringLiteral("py"), Qt::CaseInsensitive) != 0

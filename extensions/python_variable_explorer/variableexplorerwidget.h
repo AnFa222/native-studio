@@ -2,6 +2,8 @@
 
 #include <QWidget>
 
+#include <functional>
+
 class QLabel;
 class QPlainTextEdit;
 class QProcess;
@@ -15,6 +17,7 @@ class VariableExplorerWidget final : public QWidget
 public:
     explicit VariableExplorerWidget(QWidget *parent = nullptr);
     void setScriptPath(const QString &path);
+    void setPathProvider(std::function<QString()> provider);
 
 private slots:
     void runScript();
@@ -25,6 +28,7 @@ private:
     void showVariables(const QByteArray &json);
 
     QString m_scriptPath;
+    std::function<QString()> m_pathProvider;
     QLabel *m_fileLabel = nullptr;
     QLabel *m_status = nullptr;
     QTreeWidget *m_variables = nullptr;
