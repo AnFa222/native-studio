@@ -17,7 +17,7 @@ public:
 
     void setWorkingDirectory(const QString &directory);
     void startDeferred();
-    void showAppearanceSettings(QWidget *parent = nullptr);
+    void reloadSettings();
     void executeProgram(const QString &program, const QStringList &arguments,
                         const QString &workingDirectory = {});
     [[nodiscard]] QString outputText() const;
@@ -39,7 +39,6 @@ private:
     void startShell();
     void appendOutput(const QByteArray &bytes);
     void appendMessage(const QString &message);
-    void applyAppearance();
     [[nodiscard]] QString currentInput() const;
     void replaceCurrentInput(const QString &text);
     void moveCursorToInput();

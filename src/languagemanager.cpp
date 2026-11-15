@@ -194,6 +194,18 @@ QList<LanguageStatusWidgetInfo> LanguageManager::createStatusWidgets(QWidget *pa
     return widgets;
 }
 
+QList<LanguageSettingsPageInfo> LanguageManager::createSettingsPages(QWidget *parent) const
+{
+    QList<LanguageSettingsPageInfo> pages;
+    for (const auto &loaded : m_plugins) {
+        auto *provider = qobject_cast<LanguageSettingsProvider *>(loaded.instance);
+        if (!provider) continue;
+        if (QWidget *widget = provider->createSettingsWidget(parent))
+            pages.push_back({provider->settingsTitle(), provider->settingsKeywords(), widget});
+    }
+    return pages;
+}
+
 QString LanguageManager::userPluginDirectory()
 {
     return QDir(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation))

@@ -6,9 +6,11 @@
 #include "languagemanager.h"
 #include "pluginmanagerdialog.h"
 #include "projectexplorer.h"
+#include "settingsdialog.h"
 #include "terminalwidget.h"
 
 #include <QAction>
+#include <QApplication>
 #include <QCloseEvent>
 #include <QDir>
 #include <QDockWidget>
@@ -267,13 +269,45 @@ void MainWindow::createActions()
     viewMenu->addAction(m_terminalDock->toggleViewAction());
     viewMenu->addAction(m_problemsDock->toggleViewAction());
     auto *preferencesAction = settingsMenu->addAction(tr("Preferences…"), this, [this] {
-        m_terminal->showAppearanceSettings(this);
+        SettingsDialog dialog(m_languageManager, m_extensionManager, this);
+        if (dialog.exec() == QDialog::Accepted) applySettings();
     });
     preferencesAction->setObjectName(QStringLiteral("preferencesAction"));
 }
 
 void MainWindow::applyTheme()
 {
+    QSettings settings;
+    QFont applicationFont = QApplication::font();
+    applicationFont.setPointSize(qBound(8, settings.value(QStringLiteral("appearance/uiFontSize"),
+                                                           applicationFont.pointSize()).toInt(), 20));
+    QApplication::setFont(applicationFont);
+    if (settings.value(QStringLiteral("appearance/theme"),
+                       QStringLiteral("dark")).toString() == QStringLiteral("light")) {
+        setStyleSheet(QStringLiteral(R"(
+            QMainWindow, QDialog { background: #ffffff; color: #24292f; }
+            QMenuBar, QToolBar { background: #f6f8fa; color: #24292f; border-bottom: 1px solid #d0d7de; }
+            QMenuBar::item:selected, QMenu::item:selected { background: #ddf4ff; color: #0969da; }
+            QMenu { background: #ffffff; color: #24292f; border: 1px solid #d0d7de; padding: 4px; }
+            QMenu::item { padding: 6px 28px 6px 12px; }
+            QStatusBar { background: #0969da; color: #ffffff; }
+            QStatusBar::item { border: 0; }
+            QDockWidget { color: #24292f; }
+            QDockWidget::title { background: #f6f8fa; color: #57606a; padding: 8px 10px; border-bottom: 1px solid #d0d7de; }
+            QDockWidget#projectExplorerDock QWidget { background: #f6f8fa; }
+            QToolButton { color: #24292f; background: transparent; border: 0; border-radius: 4px; }
+            QToolButton:hover { background: #d0d7de; }
+            QPlainTextEdit#codeEditor { background: #ffffff; color: #24292f; border: 0; selection-background-color: #b6e3ff; selection-color: #24292f; padding: 4px 0 0 6px; }
+            QLineEdit, QComboBox, QSpinBox, QListWidget { background: #ffffff; color: #24292f; border: 1px solid #d0d7de; border-radius: 4px; padding: 5px 7px; }
+            QTableWidget, QTreeWidget { background: #ffffff; alternate-background-color: #f6f8fa; color: #24292f; border: 1px solid #d0d7de; selection-background-color: #0969da; selection-color: #ffffff; }
+            QPushButton { background: #f6f8fa; color: #24292f; border: 1px solid #d0d7de; border-radius: 4px; padding: 6px 12px; }
+            QPushButton:hover { background: #d0d7de; }
+            QLabel[settingsHeading="true"] { color: #0969da; font-size: 16px; font-weight: 700; }
+            QHeaderView::section { background: #f6f8fa; color: #57606a; border: 0; border-right: 1px solid #d0d7de; border-bottom: 1px solid #d0d7de; padding: 7px; }
+            QToolTip { background: #ffffff; color: #24292f; border: 1px solid #d0d7de; }
+        )"));
+        return;
+    }
     setStyleSheet(QStringLiteral(R"(
         QMainWindow { background: #0d1117; color: #c9d1d9; }
         QMenuBar { background: #161b22; color: #c9d1d9; border-bottom: 1px solid #30363d; }
@@ -302,7 +336,7 @@ void MainWindow::applyTheme()
         QLineEdit#terminalInput { background: #010409; color: #79c0ff; border-color: #21262d; }
         QDialog#pluginExplorer { background: #0d1117; color: #c9d1d9; }
         QDialog#settingsDialog { background: #0d1117; color: #c9d1d9; }
-        QLabel#settingsHeading { color: #58a6ff; font-size: 16px; font-weight: 700; }
+        QLabel#settingsHeading, QLabel[settingsHeading="true"] { color: #58a6ff; font-size: 16px; font-weight: 700; }
         QLabel#pluginExplorerHeading { color: #58a6ff; font-size: 16px; font-weight: 700; }
         QLabel#pluginExplorerDescription { color: #8b949e; }
         QLabel#pluginExplorerStatus { color: #8b949e; padding: 2px; }
@@ -337,6 +371,15 @@ void MainWindow::applyTheme()
         QScrollBar::handle:horizontal { background: #30363d; min-width: 28px; border-radius: 5px; margin: 2px; }
         QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
     )"));
+}
+
+void MainWindow::applySettings()
+{
+    applyTheme();
+    m_terminal->reloadSettings();
+    for (int index = 0; index < m_tabs->count(); ++index) {
+        if (auto *editor = editorAt(index)) editor->reloadSettings();
+    }
 }
 
 CodeEditor *MainWindow::addEditor(const QString &title)

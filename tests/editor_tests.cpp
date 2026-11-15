@@ -5,6 +5,7 @@
 #include "mainwindow.h"
 #include "pluginmanagerdialog.h"
 #include "projectexplorer.h"
+#include "settingsdialog.h"
 #include "terminalwidget.h"
 
 #include <QFile>
@@ -12,11 +13,13 @@
 #include <QFileInfo>
 #include <QFileSystemModel>
 #include <QCompleter>
+#include <QComboBox>
 #include <QTabWidget>
 #include <QTemporaryDir>
 #include <QSignalSpy>
 #include <QStatusBar>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QTableWidget>
@@ -51,6 +54,7 @@ private slots:
     void pluginExplorerHasMarketplaceControls();
     void loadsNativeBinaryExtension();
     void extensionManagerShowsManifestControls();
+    void settingsCenterIncludesCoreAndPluginPages();
     void languagePluginsProvideCompletions();
     void languagePluginsDetectErrors();
     void pythonAnalyzerFindsSemanticProblems();
@@ -412,6 +416,32 @@ void EditorTests::extensionManagerShowsManifestControls()
     QVERIFY(remove != nullptr);
     QCOMPARE(table->columnCount(), 6);
     QVERIFY(table->rowCount() >= 1);
+}
+
+void EditorTests::settingsCenterIncludesCoreAndPluginPages()
+{
+    MainWindow window;
+    window.loadServicesNow();
+    SettingsDialog dialog(window.languageManager(), window.extensionManager());
+
+    QCOMPARE(dialog.windowTitle(), QStringLiteral("Settings"));
+    auto *search = dialog.findChild<QLineEdit *>(QStringLiteral("settingsSearch"));
+    auto *categories = dialog.findChild<QListWidget *>(QStringLiteral("settingsCategories"));
+    QVERIFY(search != nullptr);
+    QVERIFY(categories != nullptr);
+    QVERIFY(categories->count() >= 5);
+    QVERIFY(dialog.findChild<QComboBox *>(QStringLiteral("colorThemeSetting")) != nullptr);
+    QVERIFY(dialog.findChild<QWidget *>(QStringLiteral("editorAutoClosePairsSetting")) != nullptr);
+    QVERIFY(dialog.findChild<QPushButton *>(QStringLiteral("settingsManagePlugins")) != nullptr);
+    QVERIFY(dialog.findChild<QPushButton *>(QStringLiteral("settingsManageExtensions")) != nullptr);
+    QVERIFY(dialog.findChild<QWidget *>(QStringLiteral("pythonSettingsPage")) != nullptr);
+    QVERIFY(dialog.findChild<QPushButton *>(QStringLiteral("selectPythonInterpreter")) != nullptr);
+
+    search->setText(QStringLiteral("interpreter"));
+    int visibleCategories = 0;
+    for (int index = 0; index < categories->count(); ++index)
+        visibleCategories += categories->item(index)->isHidden() ? 0 : 1;
+    QCOMPARE(visibleCategories, 1);
 }
 
 void EditorTests::languagePluginsProvideCompletions()

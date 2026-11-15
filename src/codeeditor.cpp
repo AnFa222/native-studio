@@ -9,6 +9,7 @@
 #include <QPainter>
 #include <QResizeEvent>
 #include <QSaveFile>
+#include <QSettings>
 #include <QStringListModel>
 #include <QTextBlock>
 #include <QTextStream>
@@ -68,11 +69,7 @@ CodeEditor::CodeEditor(QWidget *parent)
     , m_completionModel(new QStringListModel(this))
 {
     setObjectName(QStringLiteral("codeEditor"));
-    auto font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
-    font.setPointSize(11);
-    setFont(font);
-    setLineWrapMode(QPlainTextEdit::NoWrap);
-    setTabStopDistance(fontMetrics().horizontalAdvance(QLatin1Char(' ')) * 4.0);
+    reloadSettings();
     setPlaceholderText(tr("Start typing..."));
 
     m_completer->setModel(m_completionModel);
@@ -107,9 +104,38 @@ CodeEditor::CodeEditor(QWidget *parent)
 
 int CodeEditor::lineNumberAreaWidth() const
 {
+    if (!m_showLineNumbers) return 0;
     int digits = 1;
     for (int lines = qMax(1, blockCount()); lines >= 10; lines /= 10) ++digits;
     return 18 + fontMetrics().horizontalAdvance(QLatin1Char('9')) * digits;
+}
+
+void CodeEditor::reloadSettings()
+{
+    QSettings settings;
+    QFont editorFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    editorFont.setFamily(settings.value(QStringLiteral("editor/fontFamily"),
+                                         editorFont.family()).toString());
+    editorFont.setPointSize(qBound(8, settings.value(QStringLiteral("editor/fontSize"), 11).toInt(),
+                                   32));
+    setFont(editorFont);
+    const int tabSize = qBound(1, settings.value(QStringLiteral("editor/tabSize"), 4).toInt(), 16);
+    setTabStopDistance(fontMetrics().horizontalAdvance(QLatin1Char(' ')) * tabSize);
+    setLineWrapMode(settings.value(QStringLiteral("editor/wordWrap"), false).toBool()
+        ? QPlainTextEdit::WidgetWidth : QPlainTextEdit::NoWrap);
+    m_autoClosePairs = settings.value(QStringLiteral("editor/autoClosePairs"), true).toBool();
+    m_showLineNumbers = settings.value(QStringLiteral("editor/lineNumbers"), true).toBool();
+    m_lineNumberArea->setVisible(m_showLineNumbers);
+    const bool light = settings.value(QStringLiteral("appearance/theme"),
+                                      QStringLiteral("dark")).toString() == QStringLiteral("light");
+    m_currentLineColor = QColor(light ? QStringLiteral("#eef4ff") : QStringLiteral("#172033"));
+    m_gutterBackground = QColor(light ? QStringLiteral("#f3f4f6") : QStringLiteral("#090d13"));
+    m_gutterBorder = QColor(light ? QStringLiteral("#d0d7de") : QStringLiteral("#21262d"));
+    m_lineNumberColor = QColor(light ? QStringLiteral("#57606a") : QStringLiteral("#6e7681"));
+    m_activeLineNumberColor = QColor(light ? QStringLiteral("#0969da") : QStringLiteral("#f0f6fc"));
+    updateLineNumberAreaWidth();
+    refreshExtraSelections();
+    viewport()->update();
 }
 
 void CodeEditor::updateLineNumberAreaWidth()
@@ -145,7 +171,7 @@ void CodeEditor::refreshExtraSelections()
 {
     QList<QTextEdit::ExtraSelection> selections;
     QTextEdit::ExtraSelection selection;
-    selection.format.setBackground(QColor(QStringLiteral("#172033")));
+    selection.format.setBackground(m_currentLineColor);
     selection.format.setProperty(QTextFormat::FullWidthSelection, true);
     selection.cursor = textCursor();
     selection.cursor.clearSelection();
@@ -173,8 +199,8 @@ void CodeEditor::refreshExtraSelections()
 void CodeEditor::paintLineNumberArea(QPaintEvent *event)
 {
     QPainter painter(m_lineNumberArea);
-    painter.fillRect(event->rect(), QColor(QStringLiteral("#090d13")));
-    painter.setPen(QColor(QStringLiteral("#21262d")));
+    painter.fillRect(event->rect(), m_gutterBackground);
+    painter.setPen(m_gutterBorder);
     painter.drawLine(m_lineNumberArea->width() - 1, event->rect().top(),
                      m_lineNumberArea->width() - 1, event->rect().bottom());
 
@@ -195,8 +221,8 @@ void CodeEditor::paintLineNumberArea(QPaintEvent *event)
             }
             painter.setPen(hasError ? QColor(QStringLiteral("#f85149"))
                            : hasWarning ? QColor(QStringLiteral("#d29922"))
-                           : blockNumber == currentBlock ? QColor(QStringLiteral("#f0f6fc"))
-                                                         : QColor(QStringLiteral("#6e7681")));
+                           : blockNumber == currentBlock ? m_activeLineNumberColor
+                                                         : m_lineNumberColor);
             painter.drawText(0, top, m_lineNumberArea->width() - 8,
                              fontMetrics().height(), Qt::AlignRight,
                              QString::number(blockNumber + 1));
@@ -361,7 +387,7 @@ void CodeEditor::keyPressEvent(QKeyEvent *event)
     const bool hasCommandModifier = event->modifiers().testFlag(Qt::ControlModifier)
         || event->modifiers().testFlag(Qt::AltModifier)
         || event->modifiers().testFlag(Qt::MetaModifier);
-    if (!hasCommandModifier && event->text().size() == 1) {
+    if (m_autoClosePairs && !hasCommandModifier && event->text().size() == 1) {
         const QChar typed = event->text().front();
         QTextCursor cursor = textCursor();
         const QString contents = toPlainText();

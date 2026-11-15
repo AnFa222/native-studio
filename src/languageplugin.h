@@ -72,3 +72,15 @@ public:
 
 #define LanguageStatusProvider_iid "dev.nativestudio.LanguageStatusProvider/1.0"
 Q_DECLARE_INTERFACE(LanguageStatusProvider, LanguageStatusProvider_iid)
+
+class LanguageSettingsProvider
+{
+public:
+    virtual ~LanguageSettingsProvider() = default;
+    [[nodiscard]] virtual QString settingsTitle() const = 0;
+    [[nodiscard]] virtual QStringList settingsKeywords() const { return {}; }
+    virtual QWidget *createSettingsWidget(QWidget *parent) = 0;
+};
+
+#define LanguageSettingsProvider_iid "dev.nativestudio.LanguageSettingsProvider/1.0"
+Q_DECLARE_INTERFACE(LanguageSettingsProvider, LanguageSettingsProvider_iid)

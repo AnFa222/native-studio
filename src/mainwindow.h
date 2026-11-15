@@ -74,6 +74,7 @@ private:
     void updateTabTitle(CodeEditor *editor);
     void createActions();
     void applyTheme();
+    void applySettings();
     void updateRunAction();
     void updateLanguageFeatures(CodeEditor *editor);
     void refreshLanguageFeatures();

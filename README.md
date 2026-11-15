@@ -4,6 +4,8 @@ A fully native, language-neutral desktop IDE shell built with C++20, Qt 6 Widget
 
 The main window is shown before optional services start. Language plugins and native extensions are then loaded incrementally in interleaved event-loop jobs, while the terminal shell starts asynchronously. This keeps painting and input responsive without moving Qt plugin construction or extension UI callbacks onto unsafe worker threads. The previous window size, maximized/fullscreen state, and dock layout are restored on launch; a first launch opens maximized.
 
+**Settings > Preferences** opens a searchable, native settings center modeled after VS Code. Appearance controls cover dark/light themes and interface sizing; editor controls cover fonts, tabs, wrapping, automatic pairs, and line numbers; terminal controls cover fonts and colors. The Plugins page opens both plugin managers, and an optional plugin interface lets each language contribute its own settings page. Python contributes interpreter selection and auto-detection.
+
 ## Language plugins
 
 Language support is not compiled into the editor core. Native Qt plugins are discovered from `plugins/languages` beside the executable. A plugin implements `LanguagePlugin`, advertises its file extensions, and creates a `QSyntaxHighlighter` for matching documents. C++ and Python support are included as independently deployed plugins; other languages can be installed without changing the core.
@@ -28,7 +30,7 @@ Both plugins also provide live diagnostics. Errors and warnings use colored squi
 
 The detected language plugin can provide a native run configuration. The Python plugin locates an installed Python 3 interpreter and runs `.py`, `.pyw`, and `.pyi` files with it; the same interpreter powers full AST diagnostics. With a Python file active, use the interpreter button at the bottom-left to select a different executable. Choose **Run > Run Current File** or press **Ctrl+F5**. Output appears in the integrated terminal.
 
-The bottom terminal is also an interactive system shell. Type directly into its output surface—there is no separate command box. Input is routed to a running program first, so Python `input()` works, and the **Terminate** control stops the active program or shell without reporting an expected termination as a crash. Terminal text defaults to white; **Settings > Preferences** customizes its font, size, text color, and background. Opening a project changes its working directory to the workspace root. It can be shown or hidden from **View > Terminal**.
+The bottom terminal is also an interactive system shell. Type directly into its output surface—there is no separate command box. Input is routed to a running program first, so Python `input()` works, and the **Terminate** control stops the active program or shell without reporting an expected termination as a crash. Terminal text defaults to white. Opening a project changes its working directory to the workspace root. It can be shown or hidden from **View > Terminal**.
 
 ## Explorer
 

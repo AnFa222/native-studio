@@ -10,12 +10,16 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QHBoxLayout>
+#include <QLabel>
 #include <QProcess>
+#include <QPushButton>
 #include <QRegularExpression>
 #include <QSet>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QToolButton>
+#include <QVBoxLayout>
 
 namespace {
 struct Delimiter
@@ -205,23 +209,90 @@ QWidget *PythonLanguagePlugin::createStatusWidget(QWidget *parent)
                                .arg(QDir::toNativeSeparators(executable)));
     };
     updateButton();
-    connect(button, &QToolButton::clicked, this, [this, button, updateButton] {
-        const QString current = interpreterExecutable();
-#ifdef Q_OS_WIN
-        const QString filter = tr("Python executables (python.exe python3.exe py.exe);;All files (*)");
-#else
-        const QString filter = tr("All files (*)");
-#endif
-        const QString selected = QFileDialog::getOpenFileName(
-            button, tr("Select Python Interpreter"), QFileInfo(current).absolutePath(), filter);
-        if (selected.isEmpty() || !QFileInfo(selected).isFile()) return;
-        shutdown();
-        m_analyzerUnavailable = false;
-        QSettings().setValue(QStringLiteral("plugins/python/interpreter"),
-                             QFileInfo(selected).absoluteFilePath());
-        updateButton();
+    connect(this, &PythonLanguagePlugin::interpreterChanged, button, updateButton);
+    connect(button, &QToolButton::clicked, this, [this, button] {
+        selectInterpreter(button);
     });
     return button;
+}
+
+bool PythonLanguagePlugin::selectInterpreter(QWidget *parent)
+{
+    const QString current = interpreterExecutable();
+#ifdef Q_OS_WIN
+    const QString filter = tr("Python executables (python.exe python3.exe py.exe);;All files (*)");
+#else
+    const QString filter = tr("All files (*)");
+#endif
+    const QString selected = QFileDialog::getOpenFileName(
+        parent, tr("Select Python Interpreter"), QFileInfo(current).absolutePath(), filter);
+    if (selected.isEmpty() || !QFileInfo(selected).isFile()) return false;
+    shutdown();
+    m_analyzerUnavailable = false;
+    QSettings().setValue(QStringLiteral("plugins/python/interpreter"),
+                         QFileInfo(selected).absoluteFilePath());
+    emit interpreterChanged();
+    return true;
+}
+
+void PythonLanguagePlugin::useAutomaticInterpreter()
+{
+    shutdown();
+    m_analyzerUnavailable = false;
+    QSettings().remove(QStringLiteral("plugins/python/interpreter"));
+    emit interpreterChanged();
+}
+
+QString PythonLanguagePlugin::settingsTitle() const
+{
+    return tr("Python");
+}
+
+QStringList PythonLanguagePlugin::settingsKeywords() const
+{
+    return {tr("interpreter"), tr("python executable"), tr("analysis"), tr("run")};
+}
+
+QWidget *PythonLanguagePlugin::createSettingsWidget(QWidget *parent)
+{
+    auto *page = new QWidget(parent);
+    page->setObjectName(QStringLiteral("pythonSettingsPage"));
+    auto *layout = new QVBoxLayout(page);
+    auto *heading = new QLabel(tr("Python"), page);
+    heading->setProperty("settingsHeading", true);
+    layout->addWidget(heading);
+    auto *description = new QLabel(
+        tr("Choose the interpreter used to run Python files and power full diagnostics."), page);
+    description->setWordWrap(true);
+    layout->addWidget(description);
+    auto *path = new QLabel(page);
+    path->setObjectName(QStringLiteral("pythonInterpreterPath"));
+    path->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    path->setWordWrap(true);
+    layout->addWidget(path);
+    auto *actions = new QHBoxLayout;
+    auto *select = new QPushButton(tr("Select Interpreter…"), page);
+    select->setObjectName(QStringLiteral("selectPythonInterpreter"));
+    auto *automatic = new QPushButton(tr("Use Auto-Detected"), page);
+    automatic->setObjectName(QStringLiteral("autoDetectPythonInterpreter"));
+    actions->addWidget(select);
+    actions->addWidget(automatic);
+    actions->addStretch();
+    layout->addLayout(actions);
+    layout->addStretch();
+    const auto updatePath = [this, path] {
+        const QString custom = QSettings().value(
+            QStringLiteral("plugins/python/interpreter")).toString();
+        path->setText(custom.isEmpty()
+            ? tr("Auto-detected: %1").arg(QDir::toNativeSeparators(interpreterExecutable()))
+            : tr("Selected: %1").arg(QDir::toNativeSeparators(custom)));
+    };
+    updatePath();
+    connect(this, &PythonLanguagePlugin::interpreterChanged, page, updatePath);
+    connect(select, &QPushButton::clicked, this, [this, select] { selectInterpreter(select); });
+    connect(automatic, &QPushButton::clicked, this,
+            &PythonLanguagePlugin::useAutomaticInterpreter);
+    return page;
 }
 
 void PythonLanguagePlugin::shutdown()

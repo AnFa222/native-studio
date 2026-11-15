@@ -2,6 +2,7 @@
 
 #include "languageplugin.h"
 
+#include <QColor>
 #include <QPlainTextEdit>
 
 class QCompleter;
@@ -31,6 +32,7 @@ public:
     void setDiagnostics(const QList<CodeDiagnostic> &diagnostics);
     [[nodiscard]] const QList<CodeDiagnostic> &diagnostics() const;
     [[nodiscard]] bool completionPopupVisible() const;
+    void reloadSettings();
 
 signals:
     void cursorPositionDescriptionChanged(const QString &description);
@@ -60,5 +62,12 @@ private:
     QStringListModel *m_completionModel = nullptr;
     QString m_completionCandidate;
     bool m_completionDismissed = false;
+    bool m_autoClosePairs = true;
+    bool m_showLineNumbers = true;
+    QColor m_currentLineColor;
+    QColor m_gutterBackground;
+    QColor m_gutterBorder;
+    QColor m_lineNumberColor;
+    QColor m_activeLineNumberColor;
     QList<CodeDiagnostic> m_diagnostics;
 };

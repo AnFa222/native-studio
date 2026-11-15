@@ -30,6 +30,13 @@ struct LanguageStatusWidgetInfo
     QStringList extensions;
 };
 
+struct LanguageSettingsPageInfo
+{
+    QString title;
+    QStringList keywords;
+    QWidget *widget = nullptr;
+};
+
 class LanguageManager final : public QObject
 {
     Q_OBJECT
@@ -52,6 +59,7 @@ public:
     [[nodiscard]] QList<CodeDiagnostic> diagnostics(const QString &filePath,
                                                     const QString &documentText) const;
     [[nodiscard]] QList<LanguageStatusWidgetInfo> createStatusWidgets(QWidget *parent) const;
+    [[nodiscard]] QList<LanguageSettingsPageInfo> createSettingsPages(QWidget *parent) const;
     [[nodiscard]] static QString userPluginDirectory();
     static void applyPendingOperations();
 
