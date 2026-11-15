@@ -41,3 +41,5 @@ jobs:
             NativeStudio-Windows-x64.zip
             build/plugins/languages/language_cpp.dll
             build/plugins/languages/language_python.dll
+            build/extensions/native_hello.dll
+            src/extension_api.h

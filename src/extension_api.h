@@ -1,0 +1,87 @@
+#pragma once
+
+#include <stddef.h>
+#include <stdint.h>
+
+#define NS_EXTENSION_ABI_VERSION 1u
+#define NS_EXTENSION_ENTRY_SYMBOL "ns_extension_entry"
+
+#if defined(__cplusplus)
+#define NS_EXTERN_C extern "C"
+#else
+#define NS_EXTERN_C
+#endif
+
+#if defined(_WIN32)
+#define NS_EXTENSION_EXPORT NS_EXTERN_C __declspec(dllexport)
+#else
+#define NS_EXTENSION_EXPORT NS_EXTERN_C __attribute__((visibility("default")))
+#endif
+
+typedef struct NsStringView {
+    const char *data;
+    size_t size;
+} NsStringView;
+
+typedef void *NsExtensionHandle;
+
+typedef enum NsLogLevel {
+    NS_LOG_DEBUG = 0,
+    NS_LOG_INFO = 1,
+    NS_LOG_WARNING = 2,
+    NS_LOG_ERROR = 3
+} NsLogLevel;
+
+typedef struct NsCommandContext {
+    uint32_t struct_size;
+    NsStringView active_file_path;
+    NsStringView project_root;
+    uint32_t document_modified;
+} NsCommandContext;
+
+typedef void (*NsCommandCallback)(void *user_data, const NsCommandContext *context);
+
+typedef struct NsCommandSpec {
+    uint32_t struct_size;
+    NsStringView id;
+    NsStringView title;
+    NsStringView category;
+    NsStringView default_shortcut;
+    NsCommandCallback callback;
+    void *user_data;
+} NsCommandSpec;
+
+typedef struct NsHostApi {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    void *host_context;
+
+    int32_t (*register_command)(void *host_context, NsExtensionHandle extension,
+                                const NsCommandSpec *command);
+    void (*show_message)(void *host_context, NsStringView message, uint32_t timeout_ms);
+    void (*log)(void *host_context, NsLogLevel level, NsStringView message);
+    int32_t (*open_file)(void *host_context, NsStringView path);
+    int32_t (*insert_text)(void *host_context, NsStringView text);
+    int32_t (*replace_document_text)(void *host_context, NsStringView text);
+    int32_t (*run_process)(void *host_context, NsStringView program,
+                           const NsStringView *arguments, size_t argument_count,
+                           NsStringView working_directory);
+} NsHostApi;
+
+typedef int32_t (*NsActivateCallback)(void *extension_context, const NsHostApi *host,
+                                      NsExtensionHandle extension);
+typedef void (*NsDeactivateCallback)(void *extension_context);
+
+typedef struct NsExtensionDescriptor {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    NsStringView id;
+    NsStringView name;
+    NsStringView version;
+    void *extension_context;
+    NsActivateCallback activate;
+    NsDeactivateCallback deactivate;
+} NsExtensionDescriptor;
+
+typedef const NsExtensionDescriptor *(*NsExtensionEntryFunction)(void);
+

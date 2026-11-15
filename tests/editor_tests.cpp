@@ -1,4 +1,5 @@
 #include "codeeditor.h"
+#include "extensionmanager.h"
 #include "languagemanager.h"
 #include "mainwindow.h"
 #include "pluginmanagerdialog.h"
@@ -13,6 +14,7 @@
 #include <QTabWidget>
 #include <QTemporaryDir>
 #include <QSignalSpy>
+#include <QStatusBar>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QTableWidget>
@@ -41,6 +43,7 @@ private slots:
     void runActionTracksSupportedFile();
     void lineNumberGutterTracksDocument();
     void pluginExplorerHasMarketplaceControls();
+    void loadsNativeBinaryExtension();
     void languagePluginsProvideCompletions();
     void languagePluginsDetectErrors();
     void pythonAnalyzerFindsSemanticProblems();
@@ -245,6 +248,32 @@ void EditorTests::pluginExplorerHasMarketplaceControls()
     QVERIFY(refresh != nullptr);
     QCOMPARE(table->columnCount(), 5);
     QVERIFY(table->rowCount() >= 2);
+}
+
+void EditorTests::loadsNativeBinaryExtension()
+{
+    MainWindow window;
+    auto *manager = window.extensionManager();
+    QVERIFY(manager != nullptr);
+    const auto extensions = manager->loadedExtensions();
+    QVERIFY(std::any_of(extensions.cbegin(), extensions.cend(), [](const auto &extension) {
+        return extension.id == QStringLiteral("dev.nativestudio.hello");
+    }));
+    const QString commandId = QStringLiteral("dev.nativestudio.hello.say_hello");
+    QVERIFY(manager->commandIds().contains(commandId));
+    auto *action = window.findChild<QAction *>(QStringLiteral("extensionCommand.%1").arg(commandId));
+    QVERIFY(action != nullptr);
+    action->trigger();
+    QVERIFY(window.statusBar()->currentMessage().contains(QStringLiteral("native extension"),
+                                                           Qt::CaseInsensitive));
+    const QString insertId = QStringLiteral("dev.nativestudio.hello.insert_text");
+    auto *insertAction = window.findChild<QAction *>(
+        QStringLiteral("extensionCommand.%1").arg(insertId));
+    QVERIFY(insertAction != nullptr);
+    insertAction->trigger();
+    auto *editor = qobject_cast<CodeEditor *>(window.editorTabs()->currentWidget());
+    QVERIFY(editor != nullptr);
+    QCOMPARE(editor->toPlainText(), QStringLiteral("Hello from Native Hello"));
 }
 
 void EditorTests::languagePluginsProvideCompletions()

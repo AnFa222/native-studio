@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 
 #include "codeeditor.h"
+#include "extensionmanager.h"
 #include "languagemanager.h"
 #include "pluginmanagerdialog.h"
 #include "projectexplorer.h"
@@ -94,22 +95,79 @@ MainWindow::MainWindow(QWidget *parent)
     createActions();
     applyTheme();
     m_languageManager->loadDefaultPlugins();
-    statusBar()->showMessage(tr("Ready — %1 language plugin(s) loaded")
-                                 .arg(m_languageManager->languages().size()));
+    m_extensionManager = new ExtensionManager(this, m_extensionsMenu, this);
+    const int extensionCount = m_extensionManager->loadDefaultExtensions();
+    statusBar()->showMessage(tr("Ready — %1 language plugin(s), %2 native extension(s) loaded")
+                                 .arg(m_languageManager->languages().size()).arg(extensionCount));
     addEditor();
+}
+
+MainWindow::~MainWindow()
+{
+    if (m_extensionManager) m_extensionManager->shutdown();
 }
 
 QTabWidget *MainWindow::editorTabs() const { return m_tabs; }
 QTreeView *MainWindow::projectTree() const { return m_projectExplorer->treeView(); }
 ProjectExplorer *MainWindow::projectExplorer() const { return m_projectExplorer; }
 LanguageManager *MainWindow::languageManager() const { return m_languageManager; }
+ExtensionManager *MainWindow::extensionManager() const { return m_extensionManager; }
 TerminalWidget *MainWindow::terminal() const { return m_terminal; }
+QString MainWindow::activeFilePath() const
+{
+    const auto *editor = currentEditor();
+    return editor ? editor->filePath() : QString{};
+}
+QString MainWindow::projectDirectory() const { return m_projectDirectory; }
+bool MainWindow::activeDocumentModified() const
+{
+    const auto *editor = currentEditor();
+    return editor && editor->document()->isModified();
+}
+void MainWindow::showExtensionMessage(const QString &message, int timeoutMs)
+{
+    statusBar()->showMessage(message, qMax(0, timeoutMs));
+}
+bool MainWindow::insertExtensionText(const QString &text)
+{
+    auto *editor = currentEditor();
+    if (!editor) return false;
+    QTextCursor cursor = editor->textCursor();
+    cursor.insertText(text);
+    editor->setTextCursor(cursor);
+    editor->setFocus();
+    return true;
+}
+bool MainWindow::replaceExtensionDocument(const QString &text)
+{
+    auto *editor = currentEditor();
+    if (!editor) return false;
+    QTextCursor cursor = editor->textCursor();
+    cursor.beginEditBlock();
+    cursor.select(QTextCursor::Document);
+    cursor.insertText(text);
+    cursor.endEditBlock();
+    editor->setTextCursor(cursor);
+    editor->setFocus();
+    return true;
+}
+bool MainWindow::runExtensionProcess(const QString &program, const QStringList &arguments,
+                                     const QString &workingDirectory)
+{
+    if (program.trimmed().isEmpty()) return false;
+    m_terminalDock->show();
+    m_terminalDock->raise();
+    m_terminal->executeProgram(program, arguments,
+        workingDirectory.isEmpty() ? m_projectDirectory : workingDirectory);
+    return true;
+}
 
 void MainWindow::createActions()
 {
     auto *fileMenu = menuBar()->addMenu(tr("&File"));
     auto *projectMenu = menuBar()->addMenu(tr("&Project"));
     auto *pluginsMenu = menuBar()->addMenu(tr("&Plugins"));
+    m_extensionsMenu = menuBar()->addMenu(tr("&Extensions"));
     auto *runMenu = menuBar()->addMenu(tr("&Run"));
     auto *viewMenu = menuBar()->addMenu(tr("&View"));
     auto *toolbar = addToolBar(tr("File"));

@@ -10,6 +10,12 @@ Use **Plugins > Rescan Language Plugins** after copying a new plugin into that d
 
 Use **Plugins > Plugin Explorer** to browse and search language plugins published on the [Native Studio GitHub releases page](https://github.com/AnFa222/native-studio/releases). The explorer automatically checks the latest public release and shows which plugins are available, installed, or ready to update. Installation, removal, and updates are safely applied after restarting because Windows cannot replace a loaded DLL.
 
+## Native extensions
+
+General-purpose extensions use the versioned C ABI in `sdk/extension_api.h`. They are ordinary native shared libraries loaded in-process from `bin/extensions` or the per-user extensions directory. Commands and host services use direct function pointers and UTF-8 string views—there is no JSON, RPC, JavaScript runtime, or Qt requirement for extension binaries.
+
+The v1 host API supports activation and cleanup, command registration, active-file/project context, status messages, logging, opening files, inserting or replacing editor text, and launching processes in the integrated terminal. A compiled `native_hello` example is bundled under **Extensions > Examples**. See [docs/extension-sdk.md](docs/extension-sdk.md) for the ABI contract and a minimal CMake project.
+
 ## Language intelligence
 
 Completion and diagnostics are supplied by each language plugin rather than the editor core. The included Python and C++ plugins provide language keywords, built-ins and symbols found in the current document. Suggestions open from the first typed character, remain filtered as the prefix grows, and appear in a native popup. Press **Tab** or **Enter** to accept the selected suggestion, use the arrow keys to change it, or press **Ctrl+Space** to request the list.

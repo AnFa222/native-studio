@@ -5,7 +5,9 @@
 class CodeEditor;
 class QAction;
 class QIcon;
+class QMenu;
 class LanguageManager;
+class ExtensionManager;
 class ProjectExplorer;
 class QDockWidget;
 class QTabWidget;
@@ -19,11 +21,21 @@ class MainWindow final : public QMainWindow
 
 public:
     explicit MainWindow(QWidget *parent = nullptr);
+    ~MainWindow() override;
     [[nodiscard]] QTabWidget *editorTabs() const;
     [[nodiscard]] QTreeView *projectTree() const;
     [[nodiscard]] ProjectExplorer *projectExplorer() const;
     [[nodiscard]] LanguageManager *languageManager() const;
+    [[nodiscard]] ExtensionManager *extensionManager() const;
     [[nodiscard]] TerminalWidget *terminal() const;
+    [[nodiscard]] QString activeFilePath() const;
+    [[nodiscard]] QString projectDirectory() const;
+    [[nodiscard]] bool activeDocumentModified() const;
+    void showExtensionMessage(const QString &message, int timeoutMs = 3000);
+    bool insertExtensionText(const QString &text);
+    bool replaceExtensionDocument(const QString &text);
+    bool runExtensionProcess(const QString &program, const QStringList &arguments,
+                             const QString &workingDirectory = {});
 
 public slots:
     void openProject(const QString &directory);
@@ -61,10 +73,12 @@ private:
     QTabWidget *m_tabs = nullptr;
     ProjectExplorer *m_projectExplorer = nullptr;
     LanguageManager *m_languageManager = nullptr;
+    ExtensionManager *m_extensionManager = nullptr;
     TerminalWidget *m_terminal = nullptr;
     QDockWidget *m_terminalDock = nullptr;
     QDockWidget *m_problemsDock = nullptr;
     QTreeWidget *m_problemsTree = nullptr;
     QAction *m_runAction = nullptr;
+    QMenu *m_extensionsMenu = nullptr;
     QString m_projectDirectory;
 };

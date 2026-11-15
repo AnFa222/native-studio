@@ -3,7 +3,7 @@ if(POLICY CMP0141)
     cmake_policy(SET CMP0141 NEW)
 endif()
 
-project(NativeStudio VERSION 0.6.0 LANGUAGES CXX)
+project(NativeStudio VERSION 0.7.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -17,6 +17,9 @@ qt_standard_project_setup()
 add_library(nativeide_core STATIC
     src/codeeditor.cpp
     src/codeeditor.h
+    src/extension_api.h
+    src/extensionmanager.cpp
+    src/extensionmanager.h
     src/languagemanager.cpp
     src/languagemanager.h
     src/languageplugin.h
@@ -48,6 +51,25 @@ target_link_libraries(NativeStudio PRIVATE nativeide_core)
 set_target_properties(NativeStudio PROPERTIES
     OUTPUT_NAME "Native Studio"
 )
+
+add_library(native_hello_extension MODULE
+    extensions/hello/hello_extension.cpp
+    src/extension_api.h
+)
+target_include_directories(native_hello_extension PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+set_target_properties(native_hello_extension PROPERTIES
+    PREFIX ""
+    OUTPUT_NAME "native_hello"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/extensions"
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/extensions"
+    LIBRARY_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/extensions"
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/extensions"
+)
+if(MSVC)
+    target_compile_options(native_hello_extension PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(native_hello_extension PRIVATE -Wall -Wextra -Wpedantic)
+endif()
 
 qt_add_plugin(language_cpp MODULE
     CLASS_NAME CppLanguagePlugin
@@ -100,6 +122,7 @@ if(BUILD_TESTING)
         tests/editor_tests.cpp
     )
     target_link_libraries(nativeide_tests PRIVATE nativeide_core Qt6::Test)
+    add_dependencies(nativeide_tests native_hello_extension)
     add_test(NAME nativeide_tests COMMAND nativeide_tests)
     set_tests_properties(nativeide_tests PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
@@ -118,4 +141,8 @@ install(TARGETS language_python
     LIBRARY DESTINATION bin/plugins/languages
     RUNTIME DESTINATION bin/plugins/languages
 )
-install(FILES src/languageplugin.h DESTINATION sdk)
+install(TARGETS native_hello_extension
+    LIBRARY DESTINATION bin/extensions
+    RUNTIME DESTINATION bin/extensions
+)
+install(FILES src/languageplugin.h src/extension_api.h docs/extension-sdk.md DESTINATION sdk)
