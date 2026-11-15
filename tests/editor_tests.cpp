@@ -43,7 +43,8 @@ private slots:
     void pluginExplorerHasMarketplaceControls();
     void languagePluginsProvideCompletions();
     void languagePluginsDetectErrors();
-    void editorAcceptsInlineCompletion();
+    void languagePluginsAcceptValidSyntax();
+    void editorAcceptsPopupCompletion();
     void analysisRefreshKeepsCompletionOpen();
     void backspaceRestoresCompletionSuggestions();
     void escapeThenEnterDoesNotAcceptCompletion();
@@ -280,21 +281,64 @@ void EditorTests::languagePluginsDetectErrors()
 {
     MainWindow window;
     const auto pythonProblems = window.languageManager()->diagnostics(
-        QStringLiteral("broken.py"), QStringLiteral("def greet()\n    print('hello')\n"));
+        QStringLiteral("broken.py"),
+        QStringLiteral("if {'key': 1}\n    pass\n"
+                       "def greet():\nprint('hello')\n"
+                       "for value range(3):\n    pass\n"));
     QVERIFY(!pythonProblems.isEmpty());
     QVERIFY(std::any_of(pythonProblems.cbegin(), pythonProblems.cend(), [](const auto &problem) {
         return problem.message.contains(QStringLiteral("Expected ':'"));
     }));
+    QVERIFY(std::any_of(pythonProblems.cbegin(), pythonProblems.cend(), [](const auto &problem) {
+        return problem.message.contains(QStringLiteral("Expected an indented block"));
+    }));
+    QVERIFY(std::any_of(pythonProblems.cbegin(), pythonProblems.cend(), [](const auto &problem) {
+        return problem.message.contains(QStringLiteral("Malformed for"));
+    }));
 
     const auto cppProblems = window.languageManager()->diagnostics(
-        QStringLiteral("broken.cpp"), QStringLiteral("int main() {\n    return 0;\n"));
+        QStringLiteral("broken.cpp"),
+        QStringLiteral("#else\nint main() {\n    int value = 42\n"
+                       "    if value > 0 {\n        return value\n    }\n}\n"));
     QVERIFY(!cppProblems.isEmpty());
     QVERIFY(std::any_of(cppProblems.cbegin(), cppProblems.cend(), [](const auto &problem) {
-        return problem.message.contains(QStringLiteral("Unclosed"));
+        return problem.message.contains(QStringLiteral("Expected ';'"));
+    }));
+    QVERIFY(std::any_of(cppProblems.cbegin(), cppProblems.cend(), [](const auto &problem) {
+        return problem.message.contains(QStringLiteral("Expected '('"));
+    }));
+    QVERIFY(std::any_of(cppProblems.cbegin(), cppProblems.cend(), [](const auto &problem) {
+        return problem.message.contains(QStringLiteral("no matching #if"));
     }));
 }
 
-void EditorTests::editorAcceptsInlineCompletion()
+void EditorTests::languagePluginsAcceptValidSyntax()
+{
+    MainWindow window;
+    const auto pythonProblems = window.languageManager()->diagnostics(
+        QStringLiteral("valid.py"),
+        QStringLiteral("def greet(\n"
+                       "    name: str,\n"
+                       ") -> dict:\n"
+                       "    if name:\n"
+                       "        return {'message': name}\n"
+                       "    return None\n"));
+    QVERIFY(pythonProblems.isEmpty());
+
+    const auto cppProblems = window.languageManager()->diagnostics(
+        QStringLiteral("valid.cpp"),
+        QStringLiteral("#include <string>\n"
+                       "int main(\n"
+                       ")\n"
+                       "{\n"
+                       "    const std::string text = \"{ not code }\";\n"
+                       "    // if broken words should be ignored\n"
+                       "    return 0;\n"
+                       "}\n"));
+    QVERIFY(cppProblems.isEmpty());
+}
+
+void EditorTests::editorAcceptsPopupCompletion()
 {
     CodeEditor editor;
     editor.setCompletionItems({QStringLiteral("print"), QStringLiteral("property")});
@@ -303,24 +347,19 @@ void EditorTests::editorAcceptsInlineCompletion()
     QCoreApplication::processEvents();
 
     QTest::keyClicks(&editor, QStringLiteral("p"));
-    QVERIFY(!editor.inlineCompletion().isEmpty());
     QVERIFY(editor.completionPopupVisible());
     QTest::keyClicks(&editor, QStringLiteral("r"));
-    QCOMPARE(editor.inlineCompletion(), QStringLiteral("int"));
     QVERIFY(editor.completionPopupVisible());
 
     // Simulate the delayed plugin-analysis pass. It discovers the partial
     // document identifier "pr", but must not collapse the active popup.
     editor.setCompletionItems({QStringLiteral("pr"), QStringLiteral("print"),
                                QStringLiteral("property")});
-    QCOMPARE(editor.inlineCompletion(), QStringLiteral("int"));
     QVERIFY(editor.completionPopupVisible());
 
     QTest::keyClicks(&editor, QStringLiteral("i"));
-    QCOMPARE(editor.inlineCompletion(), QStringLiteral("nt"));
     QVERIFY(editor.completionPopupVisible());
     QTest::keyClicks(&editor, QStringLiteral("n"));
-    QCOMPARE(editor.inlineCompletion(), QStringLiteral("t"));
     QVERIFY(editor.completionPopupVisible());
     QTest::keyClick(&editor, Qt::Key_Tab);
     QCOMPARE(editor.toPlainText(), QStringLiteral("print"));
@@ -345,15 +384,12 @@ void EditorTests::analysisRefreshKeepsCompletionOpen()
 
     QTest::keyClicks(editor, QStringLiteral("pr"));
     QTRY_VERIFY(editor->completionPopupVisible());
-    QCOMPARE(editor->inlineCompletion(), QStringLiteral("int"));
     QTest::qWait(350);
     QVERIFY(editor->completionPopupVisible());
-    QCOMPARE(editor->inlineCompletion(), QStringLiteral("int"));
 
     QTest::keyClicks(editor, QStringLiteral("i"));
     QTest::qWait(350);
     QVERIFY(editor->completionPopupVisible());
-    QCOMPARE(editor->inlineCompletion(), QStringLiteral("nt"));
 }
 
 void EditorTests::backspaceRestoresCompletionSuggestions()
@@ -370,12 +406,10 @@ void EditorTests::backspaceRestoresCompletionSuggestions()
     QVERIFY(!editor.completionPopupVisible());
     QTest::keyClick(&editor, Qt::Key_Backspace);
     QVERIFY(editor.completionPopupVisible());
-    QCOMPARE(editor.inlineCompletion(), QStringLiteral("nt"));
     QCOMPARE(completer->completionCount(), 1);
 
     QTest::keyClick(&editor, Qt::Key_Backspace);
     QVERIFY(editor.completionPopupVisible());
-    QCOMPARE(editor.inlineCompletion(), QStringLiteral("int"));
     QCOMPARE(completer->completionCount(), 2);
 }
 
@@ -389,10 +423,8 @@ void EditorTests::escapeThenEnterDoesNotAcceptCompletion()
 
     QTest::keyClicks(&editor, QStringLiteral("pr"));
     QVERIFY(editor.completionPopupVisible());
-    QVERIFY(!editor.inlineCompletion().isEmpty());
     QTest::keyClick(&editor, Qt::Key_Escape);
     QVERIFY(!editor.completionPopupVisible());
-    QVERIFY(editor.inlineCompletion().isEmpty());
 
     QTest::keyClick(&editor, Qt::Key_Return);
     QCOMPARE(editor.toPlainText(), QStringLiteral("pr\n"));

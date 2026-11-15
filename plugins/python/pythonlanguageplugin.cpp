@@ -108,6 +108,42 @@ QString codeWithoutPythonStringsAndComments(const QString &text)
     }
     return code;
 }
+
+int indentationWidth(const QString &line, int *characterCount = nullptr)
+{
+    int width = 0;
+    int count = 0;
+    while (count < line.size()) {
+        if (line.at(count) == QLatin1Char(' ')) {
+            ++width;
+        } else if (line.at(count) == QLatin1Char('\t')) {
+            width += 4 - (width % 4);
+        } else {
+            break;
+        }
+        ++count;
+    }
+    if (characterCount) *characterCount = count;
+    return width;
+}
+
+int topLevelColon(const QString &line)
+{
+    int depth = 0;
+    for (int index = 0; index < line.size(); ++index) {
+        const QChar character = line.at(index);
+        if (character == QLatin1Char('(') || character == QLatin1Char('[')
+            || character == QLatin1Char('{')) {
+            ++depth;
+        } else if (character == QLatin1Char(')') || character == QLatin1Char(']')
+                   || character == QLatin1Char('}')) {
+            depth = qMax(0, depth - 1);
+        } else if (character == QLatin1Char(':') && depth == 0) {
+            return index;
+        }
+    }
+    return -1;
+}
 }
 
 QString PythonLanguagePlugin::languageName() const
@@ -271,28 +307,125 @@ QList<CodeDiagnostic> PythonLanguagePlugin::diagnostics(const QString &documentT
         result.push_back(diagnostic(opening.line, opening.column,
             QStringLiteral("Unclosed '%1'").arg(opening.character)));
 
-    const QRegularExpression requiresColon(QStringLiteral(
-        R"(^\s*(async\s+def|def|class|if|elif|else|for|while|try|except|finally|with|match|case)\b)"));
+    const QRegularExpression suiteHeader(QStringLiteral(
+        R"(^\s*(async\s+(?:def|for|with)|def|class|if|elif|else|for|while|try|except|finally|with|match|case)\b)"));
     const auto lines = documentText.split(QLatin1Char('\n'));
+    const auto codeLines = codeWithoutPythonStringsAndComments(documentText).split(QLatin1Char('\n'));
+    QList<int> indentationLevels{0};
+    bool expectsIndentedBlock = false;
+    int suiteIndentation = 0;
+    int suiteLine = -1;
+    int continuationDepth = 0;
+    bool explicitContinuation = false;
+    QString pendingSuiteKind;
+    int pendingSuiteIndentation = 0;
+    int pendingSuiteLine = -1;
     for (int lineNumber = 0; lineNumber < lines.size(); ++lineNumber) {
         const QString &sourceLine = lines.at(lineNumber);
+        const QString syntaxLine = codeLines.value(lineNumber);
         int indentationLength = 0;
-        while (indentationLength < sourceLine.size()
-               && (sourceLine.at(indentationLength) == QLatin1Char(' ')
-                   || sourceLine.at(indentationLength) == QLatin1Char('\t'))) {
-            ++indentationLength;
-        }
-        const QString indentation = sourceLine.left(indentationLength);
-        if (indentation.contains(QLatin1Char(' ')) && indentation.contains(QLatin1Char('\t'))) {
+        const int indentation = indentationWidth(sourceLine, &indentationLength);
+        const QString indentationText = sourceLine.left(indentationLength);
+        if (indentationText.contains(QLatin1Char(' '))
+            && indentationText.contains(QLatin1Char('\t'))) {
             result.push_back(diagnostic(lineNumber, 0,
                 QStringLiteral("Indentation mixes tabs and spaces"), DiagnosticSeverity::Warning));
         }
-        const QString code = sourceLine.section(QLatin1Char('#'), 0, 0).trimmed();
-        if (!code.isEmpty() && requiresColon.match(code).hasMatch()
-            && !code.contains(QLatin1Char(':')) && !code.endsWith(QLatin1Char('\\'))) {
+
+        const QString code = syntaxLine.trimmed();
+        const int depthBeforeLine = continuationDepth;
+        const bool continuedFromPreviousLine = explicitContinuation;
+        for (const QChar character : syntaxLine) {
+            if (character == QLatin1Char('(') || character == QLatin1Char('[')
+                || character == QLatin1Char('{')) ++continuationDepth;
+            else if (character == QLatin1Char(')') || character == QLatin1Char(']')
+                     || character == QLatin1Char('}')) continuationDepth = qMax(0, continuationDepth - 1);
+        }
+        explicitContinuation = code.endsWith(QLatin1Char('\\'));
+        if (code.isEmpty()) continue;
+
+        const auto possibleHeader = suiteHeader.match(code);
+        if (depthBeforeLine == 0 && !continuedFromPreviousLine
+            && (continuationDepth > 0 || explicitContinuation)
+            && possibleHeader.hasMatch()) {
+            pendingSuiteKind = possibleHeader.captured(1).simplified();
+            pendingSuiteIndentation = indentation;
+            pendingSuiteLine = lineNumber;
+        }
+        if (depthBeforeLine > 0 || continuedFromPreviousLine) {
+            if (continuationDepth == 0 && !explicitContinuation && !pendingSuiteKind.isEmpty()) {
+                const int colon = topLevelColon(code);
+                if (colon < 0) {
+                    result.push_back(diagnostic(pendingSuiteLine, 0, QStringLiteral("Expected ':'")));
+                } else if (code.mid(colon + 1).trimmed().isEmpty()) {
+                    expectsIndentedBlock = true;
+                    suiteIndentation = pendingSuiteIndentation;
+                    suiteLine = pendingSuiteLine;
+                }
+                pendingSuiteKind.clear();
+            }
+            continue;
+        }
+        if (continuationDepth > 0 || explicitContinuation) continue;
+
+        if (expectsIndentedBlock) {
+            if (indentation <= suiteIndentation) {
+                result.push_back(diagnostic(suiteLine, 0,
+                    QStringLiteral("Expected an indented block")));
+            } else if (indentation > indentationLevels.constLast()) {
+                indentationLevels.push_back(indentation);
+            }
+            expectsIndentedBlock = false;
+        } else {
+            while (indentationLevels.size() > 1
+                   && indentation < indentationLevels.constLast()) indentationLevels.removeLast();
+            if (indentation > indentationLevels.constLast()) {
+                result.push_back(diagnostic(lineNumber, 0, QStringLiteral("Unexpected indentation")));
+            } else if (indentation != indentationLevels.constLast()) {
+                result.push_back(diagnostic(lineNumber, 0, QStringLiteral("Inconsistent indentation")));
+            }
+        }
+
+        const auto header = possibleHeader;
+        if (!header.hasMatch()) continue;
+        const int colon = topLevelColon(code);
+        if (colon < 0) {
             result.push_back(diagnostic(lineNumber, qMax(0, sourceLine.size() - 1),
                                         QStringLiteral("Expected ':'")));
+            continue;
+        }
+
+        const QString kind = header.captured(1).simplified();
+        const QString beforeColon = code.left(colon).trimmed();
+        bool malformed = false;
+        if (kind == QStringLiteral("def") || kind == QStringLiteral("async def")) {
+            static const QRegularExpression definition(QStringLiteral(
+                R"(^(?:async\s+)?def\s+[A-Za-z_][A-Za-z0-9_]*\s*\(.*\)\s*(?:->\s*.+)?$)"));
+            malformed = !definition.match(beforeColon).hasMatch();
+        } else if (kind == QStringLiteral("class")) {
+            static const QRegularExpression classDefinition(QStringLiteral(
+                R"(^class\s+[A-Za-z_][A-Za-z0-9_]*(?:\s*\(.*\))?$)"));
+            malformed = !classDefinition.match(beforeColon).hasMatch();
+        } else if (kind == QStringLiteral("for") || kind == QStringLiteral("async for")) {
+            malformed = !beforeColon.contains(QRegularExpression(QStringLiteral(R"(\s+in\s+)")));
+        } else if (kind == QStringLiteral("if") || kind == QStringLiteral("elif")
+                   || kind == QStringLiteral("while") || kind == QStringLiteral("with")
+                   || kind == QStringLiteral("async with") || kind == QStringLiteral("match")
+                   || kind == QStringLiteral("case")) {
+            malformed = beforeColon.mid(kind.size()).trimmed().isEmpty();
+        }
+        if (malformed) {
+            result.push_back(diagnostic(lineNumber, indentationLength,
+                QStringLiteral("Malformed %1 statement").arg(kind)));
+        }
+
+        if (code.mid(colon + 1).trimmed().isEmpty()) {
+            expectsIndentedBlock = true;
+            suiteIndentation = indentation;
+            suiteLine = lineNumber;
         }
     }
+    if (expectsIndentedBlock)
+        result.push_back(diagnostic(suiteLine, 0, QStringLiteral("Expected an indented block")));
     return result;
 }

@@ -30,7 +30,6 @@ public:
     void setCompletionItems(const QStringList &items);
     void setDiagnostics(const QList<CodeDiagnostic> &diagnostics);
     [[nodiscard]] const QList<CodeDiagnostic> &diagnostics() const;
-    [[nodiscard]] QString inlineCompletion() const;
     [[nodiscard]] bool completionPopupVisible() const;
 
 signals:
@@ -39,7 +38,6 @@ signals:
 protected:
     bool event(QEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
-    void paintEvent(QPaintEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
 
 private:
@@ -47,7 +45,7 @@ private:
     void updateLineNumberArea(const QRect &rect, int verticalDelta);
     void highlightCurrentLine();
     void refreshExtraSelections();
-    void updateInlineCompletion();
+    void updateCompletionCandidate();
     void showCompletionPopup();
     void insertCompletion(const QString &completion);
     void useCompletionCandidate(const QString &completion);
@@ -60,7 +58,6 @@ private:
     QWidget *m_lineNumberArea = nullptr;
     QCompleter *m_completer = nullptr;
     QStringListModel *m_completionModel = nullptr;
-    QString m_inlineCompletion;
     QString m_completionCandidate;
     bool m_completionDismissed = false;
     QList<CodeDiagnostic> m_diagnostics;

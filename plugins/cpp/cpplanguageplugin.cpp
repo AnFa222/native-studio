@@ -187,6 +187,7 @@ QList<CodeDiagnostic> CppLanguagePlugin::diagnostics(const QString &documentText
 {
     QList<CodeDiagnostic> result;
     QList<Delimiter> delimiters;
+    const QString codeOnly = codeWithoutCppStringsAndComments(documentText);
     bool lineComment = false;
     bool blockComment = false;
     bool quoted = false;
@@ -200,6 +201,7 @@ QList<CodeDiagnostic> CppLanguagePlugin::diagnostics(const QString &documentText
     for (qsizetype index = 0; index < documentText.size(); ++index) {
         const QChar current = documentText.at(index);
         const QChar next = index + 1 < documentText.size() ? documentText.at(index + 1) : QChar{};
+        const QChar syntaxCharacter = codeOnly.at(index);
 
         if (current == QLatin1Char('\n')) {
             lineComment = false;
@@ -266,20 +268,20 @@ QList<CodeDiagnostic> CppLanguagePlugin::diagnostics(const QString &documentText
             ++column;
             continue;
         }
-        if (current == QLatin1Char('(') || current == QLatin1Char('[')
-            || current == QLatin1Char('{')) {
-            delimiters.push_back({current, line, column});
-        } else if (current == QLatin1Char(')') || current == QLatin1Char(']')
-                   || current == QLatin1Char('}')) {
+        if (syntaxCharacter == QLatin1Char('(') || syntaxCharacter == QLatin1Char('[')
+            || syntaxCharacter == QLatin1Char('{')) {
+            delimiters.push_back({syntaxCharacter, line, column});
+        } else if (syntaxCharacter == QLatin1Char(')') || syntaxCharacter == QLatin1Char(']')
+                   || syntaxCharacter == QLatin1Char('}')) {
             if (delimiters.isEmpty()) {
                 result.push_back(diagnostic(line, column,
-                    QStringLiteral("Unmatched closing '%1'").arg(current)));
+                    QStringLiteral("Unmatched closing '%1'").arg(syntaxCharacter)));
             } else {
                 const auto opening = delimiters.takeLast();
-                if (!delimitersMatch(opening.character, current)) {
+                if (!delimitersMatch(opening.character, syntaxCharacter)) {
                     result.push_back(diagnostic(line, column,
                         QStringLiteral("Closing '%1' does not match '%2'")
-                            .arg(current, opening.character)));
+                            .arg(syntaxCharacter, opening.character)));
                 }
             }
         }
@@ -297,23 +299,99 @@ QList<CodeDiagnostic> CppLanguagePlugin::diagnostics(const QString &documentText
         result.push_back(diagnostic(opening.line, opening.column,
             QStringLiteral("Unclosed '%1'").arg(opening.character)));
 
-    QList<Delimiter> conditionals;
     const auto lines = documentText.split(QLatin1Char('\n'));
-    const QRegularExpression openingDirective(QStringLiteral(R"(^\s*#\s*(if|ifdef|ifndef)\b)"));
-    const QRegularExpression closingDirective(QStringLiteral(R"(^\s*#\s*endif\b)"));
+    const auto syntaxLines = codeOnly.split(QLatin1Char('\n'));
+    const QRegularExpression controlStatement(QStringLiteral(
+        R"(^\s*(?:else\s+)?(if|for|while|switch|catch)\b(.*)$)"));
+    const QRegularExpression definiteStatement(QStringLiteral(
+        R"(^\s*(?:return|break|continue|throw|co_return|goto|delete|using\s+namespace|typedef)\b)"));
+    const QRegularExpression declaration(QStringLiteral(
+        R"(^\s*(?:(?:const|constexpr|constinit|static|extern|volatile|mutable|signed|unsigned|long|short|struct|class|typename)\s+)*(?:auto|bool|char|char8_t|char16_t|char32_t|double|float|int|void|wchar_t|[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*(?:\s*<.*>)?)\s+[*&\s]*[A-Za-z_][A-Za-z0-9_]*(?:\s*(?:=|\{|\().*)?$)"));
+    const QRegularExpression assignment(QStringLiteral(
+        R"(^\s*[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|->|::)[A-Za-z_][A-Za-z0-9_]*|\s*\[[^\]]+\])*\s*(?:[+\-*/%&|^]?=|\+\+|--))"));
+    const QRegularExpression callExpression(QStringLiteral(
+        R"(^\s*[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|->|::)[A-Za-z_][A-Za-z0-9_]*)*\s*\(.*\)\s*$)"));
+
+    int statementDepth = 0;
     for (int lineNumber = 0; lineNumber < lines.size(); ++lineNumber) {
-        if (openingDirective.match(lines.at(lineNumber)).hasMatch()) {
-            conditionals.push_back({QLatin1Char('#'), lineNumber, 0});
-        } else if (closingDirective.match(lines.at(lineNumber)).hasMatch()) {
-            if (conditionals.isEmpty()) {
-                result.push_back(diagnostic(lineNumber, 0, QStringLiteral("#endif has no matching #if")));
-            } else {
-                conditionals.removeLast();
+        const QString syntaxLine = syntaxLines.value(lineNumber);
+        const QString code = syntaxLine.trimmed();
+        if (code.isEmpty() || code.startsWith(QLatin1Char('#'))) continue;
+
+        const int depthBeforeLine = statementDepth;
+        for (const QChar character : syntaxLine) {
+            if (character == QLatin1Char('(') || character == QLatin1Char('['))
+                ++statementDepth;
+            else if (character == QLatin1Char(')') || character == QLatin1Char(']'))
+                statementDepth = qMax(0, statementDepth - 1);
+        }
+
+        const auto control = controlStatement.match(code);
+        if (control.hasMatch()) {
+            QString remainder = control.captured(2).trimmed();
+            if (control.captured(1) == QStringLiteral("if")
+                && remainder.startsWith(QStringLiteral("constexpr"))) {
+                remainder = remainder.mid(9).trimmed();
             }
+            if (!remainder.startsWith(QLatin1Char('('))) {
+                result.push_back(diagnostic(lineNumber,
+                    qMax(0, lines.at(lineNumber).indexOf(control.captured(1)) + control.captured(1).size()),
+                    QStringLiteral("Expected '(' after %1").arg(control.captured(1))));
+            }
+        }
+        if (depthBeforeLine > 0 || statementDepth > 0) continue;
+
+        if (code.endsWith(QLatin1Char(';')) || code.endsWith(QLatin1Char('{'))
+            || code.endsWith(QLatin1Char('}')) || code.endsWith(QLatin1Char(':'))
+            || code.endsWith(QLatin1Char(',')) || code.endsWith(QLatin1Char('\\'))
+            || control.hasMatch() || code == QStringLiteral("else")
+            || code == QStringLiteral("do") || code == QStringLiteral("try")) continue;
+
+        bool nextLineStartsBlock = false;
+        for (int nextLine = lineNumber + 1; nextLine < syntaxLines.size(); ++nextLine) {
+            const QString nextCode = syntaxLines.at(nextLine).trimmed();
+            if (nextCode.isEmpty()) continue;
+            nextLineStartsBlock = nextCode.startsWith(QLatin1Char('{'));
+            break;
+        }
+        if (nextLineStartsBlock && code.endsWith(QLatin1Char(')'))) continue;
+
+        if (definiteStatement.match(code).hasMatch() || declaration.match(code).hasMatch()
+            || assignment.match(code).hasMatch() || callExpression.match(code).hasMatch()) {
+            result.push_back(diagnostic(lineNumber, qMax(0, lines.at(lineNumber).size() - 1),
+                                        QStringLiteral("Expected ';'")));
+        }
+    }
+
+    struct ConditionalDirective { int line; bool sawElse; };
+    QList<ConditionalDirective> conditionals;
+    const QRegularExpression directive(QStringLiteral(
+        R"(^\s*#\s*(if|ifdef|ifndef|elif|else|endif)\b)"));
+    for (int lineNumber = 0; lineNumber < lines.size(); ++lineNumber) {
+        const auto match = directive.match(lines.at(lineNumber));
+        if (!match.hasMatch()) continue;
+        const QString kind = match.captured(1);
+        if (kind == QStringLiteral("if") || kind == QStringLiteral("ifdef")
+            || kind == QStringLiteral("ifndef")) {
+            conditionals.push_back({lineNumber, false});
+        } else if (kind == QStringLiteral("endif")) {
+            if (conditionals.isEmpty())
+                result.push_back(diagnostic(lineNumber, 0, QStringLiteral("#endif has no matching #if")));
+            else
+                conditionals.removeLast();
+        } else if (conditionals.isEmpty()) {
+            result.push_back(diagnostic(lineNumber, 0,
+                QStringLiteral("#%1 has no matching #if").arg(kind)));
+        } else if (kind == QStringLiteral("else")) {
+            if (conditionals.last().sawElse)
+                result.push_back(diagnostic(lineNumber, 0, QStringLiteral("Duplicate #else")));
+            conditionals.last().sawElse = true;
+        } else if (conditionals.last().sawElse) {
+            result.push_back(diagnostic(lineNumber, 0, QStringLiteral("#elif after #else")));
         }
     }
     for (const auto &opening : conditionals)
-        result.push_back(diagnostic(opening.line, opening.column,
+        result.push_back(diagnostic(opening.line, 0,
                                     QStringLiteral("Preprocessor conditional is missing #endif")));
     return result;
 }

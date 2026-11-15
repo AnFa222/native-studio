@@ -94,12 +94,12 @@ CodeEditor::CodeEditor(QWidget *parent)
             &CodeEditor::updateLineNumberArea);
     connect(this, &QPlainTextEdit::cursorPositionChanged, this, [this] {
         highlightCurrentLine();
-        updateInlineCompletion();
+        updateCompletionCandidate();
         const auto cursor = textCursor();
         emit cursorPositionDescriptionChanged(
             tr("Line %1, Column %2").arg(cursor.blockNumber() + 1).arg(cursor.positionInBlock() + 1));
     });
-    connect(this, &QPlainTextEdit::textChanged, this, &CodeEditor::updateInlineCompletion);
+    connect(this, &QPlainTextEdit::textChanged, this, &CodeEditor::updateCompletionCandidate);
 
     updateLineNumberAreaWidth();
     highlightCurrentLine();
@@ -214,7 +214,7 @@ void CodeEditor::setCompletionItems(const QStringList &items)
     normalized.removeDuplicates();
     normalized.sort(Qt::CaseInsensitive);
     if (normalized == m_completionModel->stringList()) {
-        updateInlineCompletion();
+        updateCompletionCandidate();
         return;
     }
 
@@ -225,7 +225,7 @@ void CodeEditor::setCompletionItems(const QStringList &items)
     if (m_completer->popup()->isVisible() && !currentWordPrefix().isEmpty()) return;
 
     m_completionModel->setStringList(normalized);
-    updateInlineCompletion();
+    updateCompletionCandidate();
 }
 
 void CodeEditor::setDiagnostics(const QList<CodeDiagnostic> &diagnostics)
@@ -239,11 +239,6 @@ void CodeEditor::setDiagnostics(const QList<CodeDiagnostic> &diagnostics)
 const QList<CodeDiagnostic> &CodeEditor::diagnostics() const
 {
     return m_diagnostics;
-}
-
-QString CodeEditor::inlineCompletion() const
-{
-    return m_inlineCompletion;
 }
 
 bool CodeEditor::completionPopupVisible() const
@@ -266,22 +261,18 @@ QString CodeEditor::currentWordPrefix() const
     return line.mid(start, end - start);
 }
 
-void CodeEditor::updateInlineCompletion()
+void CodeEditor::updateCompletionCandidate()
 {
-    m_inlineCompletion.clear();
     m_completionCandidate.clear();
     const QString prefix = currentWordPrefix();
     if (prefix.isEmpty()) {
         m_completer->popup()->hide();
-        viewport()->update();
         return;
     }
 
     m_completer->setCompletionPrefix(prefix);
     if (m_completer->completionCount() > 0 && selectBestCompletion(prefix)) {
         useCompletionCandidate(m_completer->currentCompletion());
-    } else {
-        viewport()->update();
     }
 }
 
@@ -323,10 +314,6 @@ bool CodeEditor::selectBestCompletion(const QString &prefix)
 void CodeEditor::useCompletionCandidate(const QString &completion)
 {
     m_completionCandidate = completion;
-    const QString prefix = currentWordPrefix();
-    m_inlineCompletion = completion.startsWith(prefix, Qt::CaseInsensitive)
-        && completion.size() > prefix.size() ? completion.mid(prefix.size()) : QString{};
-    viewport()->update();
 }
 
 void CodeEditor::insertCompletion(const QString &completion)
@@ -343,24 +330,22 @@ void CodeEditor::insertCompletion(const QString &completion)
     setTextCursor(cursor);
     m_completer->popup()->hide();
     m_completionDismissed = false;
-    updateInlineCompletion();
+    updateCompletionCandidate();
 }
 
 void CodeEditor::keyPressEvent(QKeyEvent *event)
 {
     const bool acceptKey = event->key() == Qt::Key_Tab
         || event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter;
-    if (acceptKey && !m_completionDismissed
-        && (!m_inlineCompletion.isEmpty() || m_completer->popup()->isVisible())) {
-        const QString completion = !m_completionCandidate.isEmpty()
-            ? m_completionCandidate : currentWordPrefix() + m_inlineCompletion;
+    if (acceptKey && !m_completionDismissed && m_completer->popup()->isVisible()) {
+        const QString completion = m_completionCandidate;
         if (!completion.isEmpty()) insertCompletion(completion);
         event->accept();
         return;
     }
     if (event->key() == Qt::Key_Space && event->modifiers().testFlag(Qt::ControlModifier)) {
         m_completionDismissed = false;
-        updateInlineCompletion();
+        updateCompletionCandidate();
         showCompletionPopup();
         event->accept();
         return;
@@ -368,9 +353,7 @@ void CodeEditor::keyPressEvent(QKeyEvent *event)
     if (event->key() == Qt::Key_Escape && m_completer->popup()->isVisible()) {
         m_completer->popup()->hide();
         m_completionDismissed = true;
-        m_inlineCompletion.clear();
         m_completionCandidate.clear();
-        viewport()->update();
         event->accept();
         return;
     }
@@ -389,7 +372,7 @@ void CodeEditor::keyPressEvent(QKeyEvent *event)
             cursor.movePosition(QTextCursor::Right);
             setTextCursor(cursor);
             m_completer->popup()->hide();
-            updateInlineCompletion();
+            updateCompletionCandidate();
             event->accept();
             return;
         }
@@ -410,7 +393,7 @@ void CodeEditor::keyPressEvent(QKeyEvent *event)
             setTextCursor(cursor);
             m_completer->popup()->hide();
             m_completionDismissed = false;
-            updateInlineCompletion();
+            updateCompletionCandidate();
             event->accept();
             return;
         }
@@ -422,23 +405,13 @@ void CodeEditor::keyPressEvent(QKeyEvent *event)
     if (!event->text().isEmpty() || deletionKey) {
         m_completionDismissed = false;
     }
-    updateInlineCompletion();
+    updateCompletionCandidate();
     if (!m_completionDismissed && !currentWordPrefix().isEmpty()) {
         const bool typedIdentifier = !event->text().isEmpty()
             && (event->text().front().isLetterOrNumber()
                 || event->text().front() == QLatin1Char('_'));
         if (typedIdentifier || deletionKey) showCompletionPopup();
     }
-}
-
-void CodeEditor::paintEvent(QPaintEvent *event)
-{
-    QPlainTextEdit::paintEvent(event);
-    if (m_inlineCompletion.isEmpty() || !hasFocus()) return;
-    QPainter painter(viewport());
-    painter.setPen(QColor(QStringLiteral("#6e7681")));
-    const QRect caret = cursorRect();
-    painter.drawText(caret.left(), caret.top() + fontMetrics().ascent(), m_inlineCompletion);
 }
 
 const CodeDiagnostic *CodeEditor::diagnosticAt(int documentPosition) const
