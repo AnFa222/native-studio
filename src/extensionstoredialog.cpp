@@ -340,21 +340,46 @@ void ExtensionStoreDialog::downloadBinary(const CatalogEntry &entry,
     }
     manifestFile.close();
     setStatus(tr("Downloading %1…").arg(entry.name));
+    requestBinary(entry, manifestPath, binaryName, 1);
+}
+
+void ExtensionStoreDialog::requestBinary(const CatalogEntry &entry,
+                                         const QString &manifestPath,
+                                         const QString &binaryName,
+                                         int retriesRemaining)
+{
     QNetworkRequest request(QUrl(entry.binaryUrl));
     applyGitHubHeaders(request);
+    request.setRawHeader("Accept", "application/octet-stream");
+    request.setAttribute(QNetworkRequest::CacheLoadControlAttribute,
+                         QNetworkRequest::AlwaysNetwork);
+    request.setTransferTimeout(30000);
     QNetworkReply *reply = m_network->get(request);
     connect(reply, &QNetworkReply::finished, this,
-            [this, reply, entry, manifestPath, binaryName] {
+            [this, reply, entry, manifestPath, binaryName, retriesRemaining] {
         if (reply->error() != QNetworkReply::NoError) {
-            setStatus(tr("Binary download failed: %1").arg(reply->errorString()), true);
+            const QString failure = reply->errorString();
+            const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             reply->deleteLater();
+            if (retriesRemaining > 0) {
+                setStatus(tr("Download interrupted; retrying %1…").arg(entry.name));
+                QTimer::singleShot(1200, this, [this, entry, manifestPath, binaryName,
+                                               retriesRemaining] {
+                    requestBinary(entry, manifestPath, binaryName, retriesRemaining - 1);
+                });
+                return;
+            }
+            setStatus(status > 0
+                ? tr("Binary download failed (HTTP %1): %2").arg(status).arg(failure)
+                : tr("Binary download failed: %1").arg(failure), true);
             updateSelection();
             return;
         }
         QFile binary(m_downloadDirectory->filePath(binaryName));
         const QByteArray data = reply->readAll();
         reply->deleteLater();
-        if (!binary.open(QIODevice::WriteOnly) || binary.write(data) != data.size()) {
+        if (data.isEmpty() || !binary.open(QIODevice::WriteOnly)
+            || binary.write(data) != data.size()) {
             setStatus(tr("Could not stage the downloaded extension binary."), true);
             updateSelection();
             return;

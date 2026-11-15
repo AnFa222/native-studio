@@ -42,6 +42,8 @@ private:
     [[nodiscard]] int selectedCatalogIndex() const;
     void rebuildTable();
     void downloadBinary(const CatalogEntry &entry, const QByteArray &manifestData);
+    void requestBinary(const CatalogEntry &entry, const QString &manifestPath,
+                       const QString &binaryName, int retriesRemaining);
     void setStatus(const QString &message, bool error = false);
 
     ExtensionManager *m_manager = nullptr;
