@@ -2,9 +2,9 @@
   "manifestVersion": 1,
   "id": "dev.nativestudio.git",
   "name": "Git",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "abiVersion": 1,
-  "description": "Fast native Git and GitHub source control with sign-in, status, diffs, staging, commits, pull, and push.",
+  "description": "Native Git and GitHub source control with restore, staging, branches, history, stash, clone, sign-in, pull, and push.",
   "author": "Native Studio",
   "permissions": ["ui.commands", "ui.views", "process.execute", "settings"],
   "binary": {

@@ -134,6 +134,8 @@ private slots:
     void problemsPanelTracksDiagnostics();
     void nativeWorkspaceFeaturesAreLazyAndAvailable();
     void gitHubSignInUsesCredentialManager();
+    void findAndReplaceCurrentDocument();
+    void autoSaveWritesNamedFiles();
 };
 
 void EditorTests::startsWithOneUntitledEditor()
@@ -649,6 +651,8 @@ void EditorTests::settingsCenterIncludesCoreAndPluginPages()
     QVERIFY(dialog.findChild<QComboBox *>(QStringLiteral("colorThemeSetting")) != nullptr);
     QVERIFY(dialog.findChild<QWidget *>(QStringLiteral("editorAutoClosePairsSetting")) != nullptr);
     QVERIFY(dialog.findChild<QWidget *>(QStringLiteral("editorAutoIndentSetting")) != nullptr);
+    QVERIFY(dialog.findChild<QCheckBox *>(QStringLiteral("editorAutoSaveSetting")) != nullptr);
+    QVERIFY(dialog.findChild<QSpinBox *>(QStringLiteral("editorAutoSaveDelaySetting")) != nullptr);
     QVERIFY(dialog.findChild<QPushButton *>(QStringLiteral("settingsManagePlugins")) != nullptr);
     QVERIFY(dialog.findChild<QPushButton *>(QStringLiteral("settingsManageExtensions")) != nullptr);
     QVERIFY(dialog.findChild<QWidget *>(QStringLiteral("pythonSettingsPage")) != nullptr);
@@ -1128,6 +1132,13 @@ void EditorTests::nativeWorkspaceFeaturesAreLazyAndAvailable()
     QVERIFY(gitWidget->findChild<QPushButton *>(QStringLiteral("githubSignIn")) != nullptr);
     QVERIFY(gitWidget->findChild<QPushButton *>(QStringLiteral("gitPull")) != nullptr);
     QVERIFY(gitWidget->findChild<QPushButton *>(QStringLiteral("gitPush")) != nullptr);
+    for (const QString &button : {QStringLiteral("gitRestore"), QStringLiteral("gitStageAll"),
+                                  QStringLiteral("gitUnstageAll"), QStringLiteral("gitFetch"),
+                                  QStringLiteral("gitHistory"), QStringLiteral("gitStash"),
+                                  QStringLiteral("gitStashPop"), QStringLiteral("gitCreateBranch"),
+                                  QStringLiteral("gitSwitchBranch"), QStringLiteral("gitInit"),
+                                  QStringLiteral("gitClone"), QStringLiteral("gitOpenGitHub")})
+        QVERIFY2(gitWidget->findChild<QPushButton *>(button) != nullptr, qPrintable(button));
     for (const QString &command : {
              QStringLiteral("dev.nativestudio.git.sign_in_github"),
              QStringLiteral("dev.nativestudio.git.pull"),
@@ -1193,6 +1204,55 @@ void EditorTests::gitHubSignInUsesCredentialManager()
     QCOMPARE(arguments.at(1).toStringList(),
              QStringList({QStringLiteral("credential-manager"),
                           QStringLiteral("github"), QStringLiteral("login")}));
+}
+
+void EditorTests::findAndReplaceCurrentDocument()
+{
+    MainWindow window;
+    auto *editor = qobject_cast<CodeEditor *>(window.editorTabs()->currentWidget());
+    QVERIFY(editor != nullptr);
+    editor->setPlainText(QStringLiteral("one two one"));
+    editor->moveCursor(QTextCursor::Start);
+    window.findChild<QAction *>(QStringLiteral("replaceAction"))->trigger();
+    auto *find = window.findChild<QLineEdit *>(QStringLiteral("findText"));
+    auto *replace = window.findChild<QLineEdit *>(QStringLiteral("replaceText"));
+    QVERIFY(find != nullptr);
+    QVERIFY(replace != nullptr);
+    find->setText(QStringLiteral("one"));
+    replace->setText(QStringLiteral("three"));
+    window.findChild<QAction *>(QStringLiteral("findNextButton"))->trigger();
+    QCOMPARE(editor->textCursor().selectedText(), QStringLiteral("one"));
+    window.findChild<QAction *>(QStringLiteral("replaceCurrentButton"))->trigger();
+    window.findChild<QAction *>(QStringLiteral("replaceAllButton"))->trigger();
+    QCOMPARE(editor->toPlainText(), QStringLiteral("three two three"));
+}
+
+void EditorTests::autoSaveWritesNamedFiles()
+{
+    ApplicationSettingsGuard applicationSettings;
+    QSettings().setValue(QStringLiteral("editor/autoSave"), true);
+    QSettings().setValue(QStringLiteral("editor/autoSaveDelayMs"), 250);
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString path = directory.filePath(QStringLiteral("autosave.txt"));
+    QFile seed(path);
+    QVERIFY(seed.open(QIODevice::WriteOnly));
+    seed.write("before");
+    seed.close();
+    MainWindow window;
+    window.loadServicesNow();
+    window.openFile(path);
+    auto *editor = qobject_cast<CodeEditor *>(window.editorTabs()->currentWidget());
+    QVERIFY(editor != nullptr);
+    QTextCursor cursor = editor->textCursor();
+    cursor.select(QTextCursor::Document);
+    cursor.insertText(QStringLiteral("after"));
+    editor->setTextCursor(cursor);
+    QVERIFY(editor->document()->isModified());
+    QTRY_VERIFY_WITH_TIMEOUT(!editor->document()->isModified(), 3000);
+    QFile saved(path);
+    QVERIFY(saved.open(QIODevice::ReadOnly));
+    QCOMPARE(QString::fromUtf8(saved.readAll()).trimmed(), QStringLiteral("after"));
 }
 
 QTEST_MAIN(EditorTests)

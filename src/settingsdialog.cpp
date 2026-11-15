@@ -109,6 +109,17 @@ SettingsDialog::SettingsDialog(LanguageManager *languages, ExtensionManager *ext
     m_lineNumbers = new QCheckBox(tr("Show line numbers"), editorPage);
     m_lineNumbers->setObjectName(QStringLiteral("editorLineNumbersSetting"));
     m_lineNumbers->setChecked(settings.value(QStringLiteral("editor/lineNumbers"), true).toBool());
+    m_autoSave = new QCheckBox(tr("Automatically save named files after changes"), editorPage);
+    m_autoSave->setObjectName(QStringLiteral("editorAutoSaveSetting"));
+    m_autoSave->setChecked(settings.value(QStringLiteral("editor/autoSave"), false).toBool());
+    m_autoSaveDelay = new QSpinBox(editorPage);
+    m_autoSaveDelay->setObjectName(QStringLiteral("editorAutoSaveDelaySetting"));
+    m_autoSaveDelay->setRange(250, 10000);
+    m_autoSaveDelay->setSingleStep(250);
+    m_autoSaveDelay->setSuffix(tr(" ms"));
+    m_autoSaveDelay->setValue(settings.value(QStringLiteral("editor/autoSaveDelayMs"), 1000).toInt());
+    m_autoSaveDelay->setEnabled(m_autoSave->isChecked());
+    connect(m_autoSave, &QCheckBox::toggled, m_autoSaveDelay, &QWidget::setEnabled);
     editorForm->addRow(tr("Font:"), m_editorFont);
     editorForm->addRow(tr("Font size:"), m_editorFontSize);
     editorForm->addRow(tr("Tab size:"), m_tabSize);
@@ -116,10 +127,12 @@ SettingsDialog::SettingsDialog(LanguageManager *languages, ExtensionManager *ext
     editorForm->addRow(QString{}, m_autoClosePairs);
     editorForm->addRow(QString{}, m_autoIndent);
     editorForm->addRow(QString{}, m_lineNumbers);
+    editorForm->addRow(QString{}, m_autoSave);
+    editorForm->addRow(tr("Autosave delay:"), m_autoSaveDelay);
     editorLayout->addLayout(editorForm);
     editorLayout->addStretch();
     addPage(tr("Text Editor"), {tr("font"), tr("tab"), tr("wrap"), tr("indent"), tr("bracket"),
-                                 tr("quote"), tr("line number")}, editorPage);
+                                 tr("quote"), tr("line number"), tr("autosave"), tr("delay")}, editorPage);
 
     auto *terminalPage = new QWidget(m_pages);
     auto *terminalLayout = new QVBoxLayout(terminalPage);
@@ -279,6 +292,8 @@ void SettingsDialog::restoreDefaults()
     m_autoClosePairs->setChecked(true);
     m_autoIndent->setChecked(true);
     m_lineNumbers->setChecked(true);
+    m_autoSave->setChecked(false);
+    m_autoSaveDelay->setValue(1000);
     m_terminalFont->setCurrentFont(fixedFont);
     m_terminalFontSize->setValue(qMax(8, fixedFont.pointSize()));
     m_terminalFollowTheme->setChecked(true);
@@ -301,6 +316,8 @@ void SettingsDialog::accept()
     settings.setValue(QStringLiteral("editor/autoClosePairs"), m_autoClosePairs->isChecked());
     settings.setValue(QStringLiteral("editor/autoIndent"), m_autoIndent->isChecked());
     settings.setValue(QStringLiteral("editor/lineNumbers"), m_lineNumbers->isChecked());
+    settings.setValue(QStringLiteral("editor/autoSave"), m_autoSave->isChecked());
+    settings.setValue(QStringLiteral("editor/autoSaveDelayMs"), m_autoSaveDelay->value());
     settings.setValue(QStringLiteral("terminal/fontFamily"), m_terminalFont->currentFont().family());
     settings.setValue(QStringLiteral("terminal/fontSize"), m_terminalFontSize->value());
     settings.setValue(QStringLiteral("terminal/followTheme"), m_terminalFollowTheme->isChecked());

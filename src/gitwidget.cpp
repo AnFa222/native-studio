@@ -1,10 +1,15 @@
 #include "gitwidget.h"
 
 #include <QDir>
+#include <QDesktopServices>
+#include <QFileDialog>
 #include <QFileInfo>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QInputDialog>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QProcess>
 #include <QPushButton>
@@ -36,6 +41,12 @@ GitWidget::GitWidget(QWidget *parent)
     pushButton->setObjectName(QStringLiteral("gitPush"));
     auto *stageButton = new QPushButton(tr("Stage"), this);
     auto *unstageButton = new QPushButton(tr("Unstage"), this);
+    auto *restoreButton = new QPushButton(tr("Restore"), this);
+    auto *stageAllButton = new QPushButton(tr("Stage All"), this);
+    auto *unstageAllButton = new QPushButton(tr("Unstage All"), this);
+    restoreButton->setObjectName(QStringLiteral("gitRestore"));
+    stageAllButton->setObjectName(QStringLiteral("gitStageAll"));
+    unstageAllButton->setObjectName(QStringLiteral("gitUnstageAll"));
     auto *top = new QHBoxLayout;
     top->addWidget(m_branch, 1);
     top->addWidget(refreshButton);
@@ -48,7 +59,26 @@ GitWidget::GitWidget(QWidget *parent)
     auto *actions = new QHBoxLayout;
     actions->addWidget(stageButton);
     actions->addWidget(unstageButton);
+    actions->addWidget(restoreButton);
+    actions->addWidget(stageAllButton);
+    actions->addWidget(unstageAllButton);
     actions->addStretch();
+    auto *repositoryActions = new QGridLayout;
+    const QList<QPair<QString, const char *>> repositoryButtons{
+        {tr("Fetch"), "gitFetch"}, {tr("History"), "gitHistory"},
+        {tr("Stash"), "gitStash"}, {tr("Pop Stash"), "gitStashPop"},
+        {tr("New Branch"), "gitCreateBranch"}, {tr("Switch Branch"), "gitSwitchBranch"},
+        {tr("Init"), "gitInit"}, {tr("Clone"), "gitClone"},
+        {tr("Open on GitHub"), "gitOpenGitHub"}
+    };
+    QList<QPushButton *> extraButtons;
+    for (const auto &[text, name] : repositoryButtons) {
+        auto *button = new QPushButton(text, this);
+        button->setObjectName(QString::fromLatin1(name));
+        const int index = extraButtons.size();
+        repositoryActions->addWidget(button, index / 3, index % 3);
+        extraButtons.push_back(button);
+    }
     auto *commitRow = new QHBoxLayout;
     commitRow->addWidget(m_message, 1);
     commitRow->addWidget(m_commit);
@@ -58,6 +88,7 @@ GitWidget::GitWidget(QWidget *parent)
     layout->addLayout(remoteActions);
     layout->addWidget(m_files, 1);
     layout->addLayout(actions);
+    layout->addLayout(repositoryActions);
     layout->addWidget(m_diff, 1);
     layout->addLayout(commitRow);
     connect(refreshButton, &QPushButton::clicked, this, &GitWidget::refresh);
@@ -66,6 +97,18 @@ GitWidget::GitWidget(QWidget *parent)
     connect(pushButton, &QPushButton::clicked, this, &GitWidget::push);
     connect(stageButton, &QPushButton::clicked, this, &GitWidget::stageSelected);
     connect(unstageButton, &QPushButton::clicked, this, &GitWidget::unstageSelected);
+    connect(restoreButton, &QPushButton::clicked, this, &GitWidget::restoreSelected);
+    connect(stageAllButton, &QPushButton::clicked, this, &GitWidget::stageAll);
+    connect(unstageAllButton, &QPushButton::clicked, this, &GitWidget::unstageAll);
+    connect(extraButtons.at(0), &QPushButton::clicked, this, &GitWidget::fetch);
+    connect(extraButtons.at(1), &QPushButton::clicked, this, &GitWidget::showHistory);
+    connect(extraButtons.at(2), &QPushButton::clicked, this, &GitWidget::stash);
+    connect(extraButtons.at(3), &QPushButton::clicked, this, &GitWidget::stashPop);
+    connect(extraButtons.at(4), &QPushButton::clicked, this, &GitWidget::createBranch);
+    connect(extraButtons.at(5), &QPushButton::clicked, this, &GitWidget::switchBranch);
+    connect(extraButtons.at(6), &QPushButton::clicked, this, &GitWidget::initializeRepository);
+    connect(extraButtons.at(7), &QPushButton::clicked, this, &GitWidget::cloneRepository);
+    connect(extraButtons.at(8), &QPushButton::clicked, this, &GitWidget::openOnGitHub);
     connect(m_commit, &QPushButton::clicked, this, &GitWidget::commit);
     connect(m_files, &QTreeWidget::itemClicked, this, [this](QTreeWidgetItem *item) { showDiff(item); });
     connect(m_files, &QTreeWidget::itemActivated, this, [this](QTreeWidgetItem *item) {
@@ -191,6 +234,127 @@ void GitWidget::push()
     if (m_rootPath.isEmpty()) return;
     emit runInTerminalRequested(configuredGit(),
         {QStringLiteral("-C"), m_rootPath, QStringLiteral("push")}, m_rootPath);
+}
+
+void GitWidget::restoreSelected()
+{
+    const QString path = selectedPath();
+    if (path.isEmpty()) return;
+    if (m_files->currentItem()->text(0).contains(QLatin1Char('?'))) {
+        QMessageBox::information(this, tr("Cannot Restore Untracked File"),
+            tr("Git has no committed version of this untracked file."));
+        return;
+    }
+    if (QMessageBox::warning(this, tr("Restore File"),
+            tr("Discard changes and restore %1 from HEAD?").arg(path),
+            QMessageBox::Yes | QMessageBox::Cancel,
+            QMessageBox::Cancel) != QMessageBox::Yes) return;
+    runGit({QStringLiteral("restore"), QStringLiteral("--source=HEAD"),
+            QStringLiteral("--staged"), QStringLiteral("--worktree"),
+            QStringLiteral("--"), path}, [this](const QString &output) {
+        if (!output.trimmed().isEmpty()) m_diff->setPlainText(output);
+        refresh();
+    });
+}
+
+void GitWidget::stageAll()
+{
+    runGit({QStringLiteral("add"), QStringLiteral("-A")}, [this](const QString &) { refresh(); });
+}
+
+void GitWidget::unstageAll()
+{
+    runGit({QStringLiteral("reset")}, [this](const QString &output) {
+        if (!output.trimmed().isEmpty()) m_diff->setPlainText(output);
+        refresh();
+    });
+}
+
+void GitWidget::fetch()
+{
+    runGit({QStringLiteral("fetch"), QStringLiteral("--prune")},
+           [this](const QString &output) { m_diff->setPlainText(output); refresh(); });
+}
+
+void GitWidget::showHistory()
+{
+    runGit({QStringLiteral("log"), QStringLiteral("--oneline"),
+            QStringLiteral("--decorate"), QStringLiteral("--graph"),
+            QStringLiteral("-n"), QStringLiteral("100")},
+           [this](const QString &output) { m_diff->setPlainText(output); });
+}
+
+void GitWidget::stash()
+{
+    runGit({QStringLiteral("stash"), QStringLiteral("push"), QStringLiteral("-u")},
+           [this](const QString &output) { m_diff->setPlainText(output); refresh(); });
+}
+
+void GitWidget::stashPop()
+{
+    runGit({QStringLiteral("stash"), QStringLiteral("pop")},
+           [this](const QString &output) { m_diff->setPlainText(output); refresh(); });
+}
+
+void GitWidget::initializeRepository()
+{
+    runGit({QStringLiteral("init")}, [this](const QString &output) {
+        m_diff->setPlainText(output);
+        refresh();
+    });
+}
+
+void GitWidget::createBranch()
+{
+    bool accepted = false;
+    const QString name = QInputDialog::getText(this, tr("Create Branch"), tr("Branch name:"),
+                                                QLineEdit::Normal, {}, &accepted).trimmed();
+    if (!accepted || name.isEmpty()) return;
+    runGit({QStringLiteral("switch"), QStringLiteral("-c"), name},
+           [this](const QString &output) { m_diff->setPlainText(output); refresh(); });
+}
+
+void GitWidget::switchBranch()
+{
+    runGit({QStringLiteral("for-each-ref"), QStringLiteral("--format=%(refname:short)"),
+            QStringLiteral("refs/heads")}, [this](const QString &output) {
+        const QStringList branches = output.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+        if (branches.isEmpty()) return;
+        bool accepted = false;
+        const QString branch = QInputDialog::getItem(this, tr("Switch Branch"), tr("Branch:"),
+                                                      branches, 0, false, &accepted);
+        if (!accepted || branch.isEmpty()) return;
+        runGit({QStringLiteral("switch"), branch},
+               [this](const QString &result) { m_diff->setPlainText(result); refresh(); });
+    });
+}
+
+void GitWidget::cloneRepository()
+{
+    bool accepted = false;
+    const QString remote = QInputDialog::getText(this, tr("Clone Repository"),
+        tr("Repository URL:"), QLineEdit::Normal, {}, &accepted).trimmed();
+    if (!accepted || remote.isEmpty()) return;
+    const QString parent = QFileDialog::getExistingDirectory(this, tr("Clone Into Folder"),
+                                                               m_rootPath);
+    if (parent.isEmpty()) return;
+    emit runInTerminalRequested(configuredGit(),
+        {QStringLiteral("clone"), remote}, parent);
+}
+
+void GitWidget::openOnGitHub()
+{
+    runGit({QStringLiteral("remote"), QStringLiteral("get-url"), QStringLiteral("origin")},
+           [this](const QString &output) {
+        QString url = output.trimmed();
+        if (url.startsWith(QStringLiteral("git@github.com:")))
+            url = QStringLiteral("https://github.com/") + url.mid(15);
+        if (url.endsWith(QStringLiteral(".git"))) url.chop(4);
+        if (url.startsWith(QStringLiteral("https://github.com/")))
+            QDesktopServices::openUrl(QUrl(url));
+        else
+            m_diff->setPlainText(tr("The origin remote is not a GitHub URL."));
+    });
 }
 
 QString GitWidget::selectedPath() const

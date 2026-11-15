@@ -16,6 +16,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QCloseEvent>
+#include <QCheckBox>
 #include <QDir>
 #include <QDockWidget>
 #include <QDrag>
@@ -25,6 +26,7 @@
 #include <QFileInfo>
 #include <QHeaderView>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMenuBar>
 #include <QMimeData>
 #include <QMouseEvent>
@@ -262,6 +264,7 @@ MainWindow::MainWindow(QWidget *parent)
     });
 
     createActions();
+    createFindBar();
     applyStoredKeybindings();
     applyTheme();
     m_extensionManager = new ExtensionManager(this, m_extensionsMenu, this);
@@ -402,6 +405,7 @@ bool MainWindow::showExtensionView(const QString &viewId)
 void MainWindow::createActions()
 {
     auto *fileMenu = menuBar()->addMenu(tr("&File"));
+    auto *editMenu = menuBar()->addMenu(tr("&Edit"));
     auto *projectMenu = menuBar()->addMenu(tr("&Project"));
     auto *terminalMenu = menuBar()->addMenu(tr("&Terminal"));
     auto *pluginsMenu = menuBar()->addMenu(tr("&Plugins"));
@@ -443,6 +447,21 @@ void MainWindow::createActions()
     auto *exitAction = fileMenu->addAction(tr("E&xit"), this, &QWidget::close);
     exitAction->setShortcut(QKeySequence::Quit);
 
+    auto *findAction = editMenu->addAction(tr("&Find…"), this, &MainWindow::showFind);
+    findAction->setObjectName(QStringLiteral("findAction"));
+    findAction->setShortcut(QKeySequence::Find);
+    auto *replaceAction = editMenu->addAction(tr("Find and &Replace…"), this,
+                                               &MainWindow::showReplace);
+    replaceAction->setObjectName(QStringLiteral("replaceAction"));
+    replaceAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+H")));
+    auto *findNextAction = editMenu->addAction(tr("Find Next"), this, &MainWindow::findNext);
+    findNextAction->setObjectName(QStringLiteral("findNextAction"));
+    findNextAction->setShortcut(QKeySequence::FindNext);
+    auto *findPreviousAction = editMenu->addAction(tr("Find Previous"), this,
+                                                   &MainWindow::findPrevious);
+    findPreviousAction->setObjectName(QStringLiteral("findPreviousAction"));
+    findPreviousAction->setShortcut(QKeySequence::FindPrevious);
+
     auto *openProjectAction = projectMenu->addAction(tr("&Open Folder..."), this, &MainWindow::chooseProject);
     openProjectAction->setObjectName(QStringLiteral("openProjectAction"));
     openProjectAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_O));
@@ -483,6 +502,129 @@ void MainWindow::createActions()
                                                        this, &MainWindow::showKeybindings);
     keybindingsAction->setObjectName(QStringLiteral("keybindingsAction"));
     keybindingsAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+K, Ctrl+S")));
+}
+
+void MainWindow::createFindBar()
+{
+    m_findBar = addToolBar(tr("Find and Replace"));
+    m_findBar->setObjectName(QStringLiteral("findReplaceBar"));
+    m_findBar->setMovable(false);
+    m_findBar->setFloatable(false);
+    addToolBarBreak(Qt::TopToolBarArea);
+    m_findText = new QLineEdit(m_findBar);
+    m_findText->setObjectName(QStringLiteral("findText"));
+    m_findText->setPlaceholderText(tr("Find"));
+    m_findText->setMinimumWidth(220);
+    m_replaceText = new QLineEdit(m_findBar);
+    m_replaceText->setObjectName(QStringLiteral("replaceText"));
+    m_replaceText->setPlaceholderText(tr("Replace"));
+    m_replaceText->setMinimumWidth(180);
+    m_findCaseSensitive = new QCheckBox(tr("Match case"), m_findBar);
+    m_findCaseSensitive->setObjectName(QStringLiteral("findCaseSensitive"));
+    m_findBar->addWidget(m_findText);
+    auto *previous = m_findBar->addAction(tr("Previous"), this, &MainWindow::findPrevious);
+    previous->setObjectName(QStringLiteral("findPreviousButton"));
+    auto *next = m_findBar->addAction(tr("Next"), this, &MainWindow::findNext);
+    next->setObjectName(QStringLiteral("findNextButton"));
+    m_findBar->addSeparator();
+    m_findBar->addWidget(m_replaceText);
+    auto *replace = m_findBar->addAction(tr("Replace"), this, &MainWindow::replaceCurrent);
+    replace->setObjectName(QStringLiteral("replaceCurrentButton"));
+    auto *replaceEvery = m_findBar->addAction(tr("Replace All"), this, &MainWindow::replaceAll);
+    replaceEvery->setObjectName(QStringLiteral("replaceAllButton"));
+    m_findBar->addWidget(m_findCaseSensitive);
+    m_findBar->addSeparator();
+    m_findBar->addAction(tr("Close"), m_findBar, &QWidget::hide);
+    connect(m_findText, &QLineEdit::returnPressed, this, &MainWindow::findNext);
+    connect(m_replaceText, &QLineEdit::returnPressed, this, &MainWindow::replaceCurrent);
+    m_findBar->hide();
+}
+
+void MainWindow::showFind()
+{
+    m_findBar->show();
+    m_replaceText->setVisible(false);
+    for (QAction *action : m_findBar->actions()) {
+        if (action->text() == tr("Replace") || action->text() == tr("Replace All"))
+            action->setVisible(false);
+    }
+    if (auto *editor = currentEditor(); editor && editor->textCursor().hasSelection())
+        m_findText->setText(editor->textCursor().selectedText());
+    m_findText->selectAll();
+    m_findText->setFocus();
+}
+
+void MainWindow::showReplace()
+{
+    showFind();
+    m_replaceText->setVisible(true);
+    for (QAction *action : m_findBar->actions()) {
+        if (action->text() == tr("Replace") || action->text() == tr("Replace All"))
+            action->setVisible(true);
+    }
+}
+
+bool MainWindow::findText(bool backward)
+{
+    auto *editor = currentEditor();
+    if (!editor || m_findText->text().isEmpty()) return false;
+    QTextDocument::FindFlags flags;
+    if (backward) flags |= QTextDocument::FindBackward;
+    if (m_findCaseSensitive->isChecked()) flags |= QTextDocument::FindCaseSensitively;
+    QTextCursor start = editor->textCursor();
+    start.clearSelection();
+    QTextCursor found = editor->document()->find(m_findText->text(), start, flags);
+    if (found.isNull()) {
+        QTextCursor wrap(editor->document());
+        wrap.movePosition(backward ? QTextCursor::End : QTextCursor::Start);
+        found = editor->document()->find(m_findText->text(), wrap, flags);
+    }
+    if (found.isNull()) {
+        statusBar()->showMessage(tr("No matches for “%1”").arg(m_findText->text()), 2000);
+        return false;
+    }
+    editor->setTextCursor(found);
+    editor->ensureCursorVisible();
+    return true;
+}
+
+void MainWindow::findNext() { findText(false); }
+void MainWindow::findPrevious() { findText(true); }
+
+void MainWindow::replaceCurrent()
+{
+    auto *editor = currentEditor();
+    if (!editor) return;
+    QTextCursor cursor = editor->textCursor();
+    const Qt::CaseSensitivity sensitivity = m_findCaseSensitive->isChecked()
+        ? Qt::CaseSensitive : Qt::CaseInsensitive;
+    if (cursor.hasSelection()
+        && cursor.selectedText().compare(m_findText->text(), sensitivity) == 0) {
+        cursor.insertText(m_replaceText->text());
+        editor->setTextCursor(cursor);
+    }
+    findNext();
+}
+
+void MainWindow::replaceAll()
+{
+    auto *editor = currentEditor();
+    if (!editor || m_findText->text().isEmpty()) return;
+    QTextDocument::FindFlags flags;
+    if (m_findCaseSensitive->isChecked()) flags |= QTextDocument::FindCaseSensitively;
+    QTextCursor transaction(editor->document());
+    transaction.beginEditBlock();
+    QTextCursor search(editor->document());
+    int replacements = 0;
+    while (true) {
+        QTextCursor match = editor->document()->find(m_findText->text(), search, flags);
+        if (match.isNull()) break;
+        match.insertText(m_replaceText->text());
+        search.setPosition(match.position());
+        ++replacements;
+    }
+    transaction.endEditBlock();
+    statusBar()->showMessage(tr("Replaced %1 occurrence(s)").arg(replacements), 2500);
 }
 
 void MainWindow::applyTheme()
@@ -711,6 +853,23 @@ CodeEditor *MainWindow::addEditor(const QString &title)
             [analysisTimer] { analysisTimer->start(); });
     connect(analysisTimer, &QTimer::timeout, this,
             [this, editor] { updateLanguageFeatures(editor); });
+    auto *autoSaveTimer = new QTimer(editor);
+    autoSaveTimer->setObjectName(QStringLiteral("autoSaveTimer"));
+    autoSaveTimer->setSingleShot(true);
+    connect(editor, &QPlainTextEdit::textChanged, autoSaveTimer, [editor, autoSaveTimer] {
+        QSettings settings;
+        if (!settings.value(QStringLiteral("editor/autoSave"), false).toBool()
+            || editor->filePath().isEmpty()) {
+            autoSaveTimer->stop();
+            return;
+        }
+        autoSaveTimer->start(qBound(250,
+            settings.value(QStringLiteral("editor/autoSaveDelayMs"), 1000).toInt(), 10000));
+    });
+    connect(autoSaveTimer, &QTimer::timeout, this, [this, editor] {
+        if (editor == currentEditor() && editor->document()->isModified()
+            && !editor->filePath().isEmpty()) saveEditor(editor);
+    });
     editor->setFocus();
     updateRunAction();
     return editor;

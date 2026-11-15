@@ -9,6 +9,8 @@ class QAction;
 class QDragEnterEvent;
 class QDropEvent;
 class QIcon;
+class QCheckBox;
+class QLineEdit;
 class QMenu;
 class QLabel;
 class LanguageManager;
@@ -21,6 +23,7 @@ class QSplitter;
 class TerminalWidget;
 class QTreeView;
 class QToolButton;
+class QToolBar;
 class ProjectSearchWidget;
 class GitWidget;
 
@@ -82,6 +85,12 @@ private slots:
     void showGit();
     void newTerminal();
     void newPowerShellTerminal();
+    void showFind();
+    void showReplace();
+    void findNext();
+    void findPrevious();
+    void replaceCurrent();
+    void replaceAll();
 
 private:
     [[nodiscard]] CodeEditor *currentEditor() const;
@@ -99,6 +108,8 @@ private:
     bool confirmCloseEditor(CodeEditor *editor);
     void updateTabTitle(CodeEditor *editor);
     void createActions();
+    void createFindBar();
+    bool findText(bool backward);
     void applyTheme();
     void applySettings();
     void updateRunAction();
@@ -141,6 +152,10 @@ private:
     QDockWidget *m_gitDock = nullptr;
     GitWidget *m_gitWidget = nullptr;
     QAction *m_runAction = nullptr;
+    QToolBar *m_findBar = nullptr;
+    QLineEdit *m_findText = nullptr;
+    QLineEdit *m_replaceText = nullptr;
+    QCheckBox *m_findCaseSensitive = nullptr;
     QMenu *m_extensionsMenu = nullptr;
     QLabel *m_cursorStatus = nullptr;
     struct LanguageStatusItem {

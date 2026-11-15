@@ -35,6 +35,18 @@ private slots:
     void signInToGitHub();
     void pull();
     void push();
+    void restoreSelected();
+    void stageAll();
+    void unstageAll();
+    void fetch();
+    void showHistory();
+    void stash();
+    void stashPop();
+    void initializeRepository();
+    void createBranch();
+    void switchBranch();
+    void cloneRepository();
+    void openOnGitHub();
 
 private:
     void runGit(const QStringList &arguments, const std::function<void(const QString &)> &finished);

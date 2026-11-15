@@ -49,6 +49,8 @@ private:
     QCheckBox *m_autoClosePairs = nullptr;
     QCheckBox *m_autoIndent = nullptr;
     QCheckBox *m_lineNumbers = nullptr;
+    QCheckBox *m_autoSave = nullptr;
+    QSpinBox *m_autoSaveDelay = nullptr;
     QFontComboBox *m_terminalFont = nullptr;
     QSpinBox *m_terminalFontSize = nullptr;
     QCheckBox *m_terminalFollowTheme = nullptr;
