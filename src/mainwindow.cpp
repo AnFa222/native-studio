@@ -21,9 +21,12 @@
 #include <QDrag>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QEvent>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFrame>
 #include <QHeaderView>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenuBar>
@@ -33,7 +36,9 @@
 #include <QPainter>
 #include <QPalette>
 #include <QPixmap>
+#include <QPushButton>
 #include <QStatusBar>
+#include <QStyle>
 #include <QSettings>
 #include <QSplitter>
 #include <QTabBar>
@@ -45,6 +50,7 @@
 #include <QToolButton>
 #include <QTreeView>
 #include <QTreeWidget>
+#include <QVBoxLayout>
 
 #include <functional>
 
@@ -119,6 +125,33 @@ public:
     {
         setTabBar(new FileTabBar);
         setAcceptDrops(true);
+        m_emptyState = new QWidget(this);
+        m_emptyState->setObjectName(QStringLiteral("editorEmptyState"));
+        auto *layout = new QVBoxLayout(m_emptyState);
+        layout->setContentsMargins(24, 24, 24, 24);
+        layout->setSpacing(10);
+        auto *title = new QLabel(tr("No file is open"), m_emptyState);
+        title->setObjectName(QStringLiteral("editorEmptyTitle"));
+        auto *description = new QLabel(tr("Open a file or create a new one to start editing."),
+                                       m_emptyState);
+        description->setObjectName(QStringLiteral("editorEmptyDescription"));
+        m_newFile = new QPushButton(tr("New File"), m_emptyState);
+        m_openFile = new QPushButton(tr("Open File"), m_emptyState);
+        m_openFolder = new QPushButton(tr("Open Folder"), m_emptyState);
+        for (QPushButton *button : {m_newFile, m_openFile, m_openFolder}) {
+            button->setFlat(true);
+            button->setCursor(Qt::PointingHandCursor);
+            button->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
+        }
+        layout->addStretch();
+        layout->addWidget(title, 0, Qt::AlignHCenter);
+        layout->addWidget(description, 0, Qt::AlignHCenter);
+        layout->addSpacing(6);
+        layout->addWidget(m_newFile, 0, Qt::AlignHCenter);
+        layout->addWidget(m_openFile, 0, Qt::AlignHCenter);
+        layout->addWidget(m_openFolder, 0, Qt::AlignHCenter);
+        layout->addStretch();
+        updateEmptyState();
     }
     FileTabBar *fileTabBar() const { return static_cast<FileTabBar *>(tabBar()); }
     void setDropHandler(FileTabBar::DropHandler handler)
@@ -126,8 +159,33 @@ public:
         m_dropHandler = std::move(handler);
         fileTabBar()->setDropHandler(m_dropHandler);
     }
+    void setEmptyActions(std::function<void()> newFile, std::function<void()> openFile,
+                         std::function<void()> openFolder)
+    {
+        connect(m_newFile, &QPushButton::clicked, this, std::move(newFile));
+        connect(m_openFile, &QPushButton::clicked, this, std::move(openFile));
+        connect(m_openFolder, &QPushButton::clicked, this, std::move(openFolder));
+    }
 
 protected:
+    void tabInserted(int index) override
+    {
+        QTabWidget::tabInserted(index);
+        updateEmptyState();
+    }
+
+    void tabRemoved(int index) override
+    {
+        QTabWidget::tabRemoved(index);
+        updateEmptyState();
+    }
+
+    void resizeEvent(QResizeEvent *event) override
+    {
+        QTabWidget::resizeEvent(event);
+        m_emptyState->setGeometry(rect());
+    }
+
     void dragEnterEvent(QDragEnterEvent *event) override
     {
         if (event->mimeData()->hasFormat(editorTabMimeType)) event->acceptProposedAction();
@@ -145,7 +203,19 @@ protected:
     }
 
 private:
+    void updateEmptyState()
+    {
+        const bool empty = count() == 0;
+        tabBar()->setVisible(!empty);
+        m_emptyState->setVisible(empty);
+        if (empty) m_emptyState->raise();
+    }
+
     FileTabBar::DropHandler m_dropHandler;
+    QWidget *m_emptyState = nullptr;
+    QPushButton *m_newFile = nullptr;
+    QPushButton *m_openFile = nullptr;
+    QPushButton *m_openFolder = nullptr;
 };
 }
 
@@ -168,6 +238,7 @@ MainWindow::MainWindow(QWidget *parent)
     configureEditorGroup(m_tabs);
     m_editorSplitter->setObjectName(QStringLiteral("editorSplitter"));
     m_editorSplitter->addWidget(m_tabs);
+    m_editorSplitter->installEventFilter(this);
     setCentralWidget(m_editorSplitter);
 
     connect(m_projectExplorer, &ProjectExplorer::fileActivated, this, &MainWindow::openFile);
@@ -509,6 +580,12 @@ void MainWindow::createActions()
     openProjectAction->setObjectName(QStringLiteral("openProjectAction"));
     openProjectAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_O));
     toolbar->insertAction(saveAction, openProjectAction);
+    m_closeProjectAction = projectMenu->addAction(
+        style()->standardIcon(QStyle::SP_DialogCloseButton), tr("Close Folder"),
+        this, &MainWindow::closeProject);
+    m_closeProjectAction->setObjectName(QStringLiteral("closeProjectAction"));
+    m_closeProjectAction->setEnabled(false);
+    toolbar->insertAction(saveAction, m_closeProjectAction);
     auto *quickOpenAction = projectMenu->addAction(tr("Quick Open…"), this, &MainWindow::quickOpen);
     quickOpenAction->setObjectName(QStringLiteral("quickOpenAction"));
     quickOpenAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+P")));
@@ -549,50 +626,123 @@ void MainWindow::createActions()
 
 void MainWindow::createFindBar()
 {
-    m_findBar = addToolBar(tr("Find and Replace"));
+    m_findBar = new QFrame(m_editorSplitter);
     m_findBar->setObjectName(QStringLiteral("findReplaceBar"));
-    m_findBar->setMovable(false);
-    m_findBar->setFloatable(false);
-    addToolBarBreak(Qt::TopToolBarArea);
+    m_findBar->setFixedWidth(430);
+    m_findBar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Maximum);
+    auto *panelLayout = new QVBoxLayout(m_findBar);
+    panelLayout->setContentsMargins(7, 7, 7, 7);
+    panelLayout->setSpacing(5);
+
+    auto *findRow = new QHBoxLayout;
+    findRow->setContentsMargins(0, 0, 0, 0);
+    findRow->setSpacing(4);
+    auto *toggleReplace = new QToolButton(m_findBar);
+    toggleReplace->setObjectName(QStringLiteral("toggleReplaceButton"));
+    toggleReplace->setText(QStringLiteral("›"));
+    toggleReplace->setToolTip(tr("Toggle Replace"));
+    toggleReplace->setCheckable(true);
+    toggleReplace->setAutoRaise(true);
     m_findText = new QLineEdit(m_findBar);
     m_findText->setObjectName(QStringLiteral("findText"));
     m_findText->setPlaceholderText(tr("Find"));
-    m_findText->setMinimumWidth(220);
-    m_replaceText = new QLineEdit(m_findBar);
+    m_findText->setClearButtonEnabled(true);
+    m_findCaseSensitive = new QToolButton(m_findBar);
+    m_findCaseSensitive->setObjectName(QStringLiteral("findCaseSensitive"));
+    m_findCaseSensitive->setText(tr("Aa"));
+    m_findCaseSensitive->setToolTip(tr("Match Case"));
+    m_findCaseSensitive->setCheckable(true);
+    m_findCaseSensitive->setAutoRaise(true);
+    const auto makeActionButton = [this](QAction *action, const QString &text,
+                                         const QString &tooltip) {
+        auto *button = new QToolButton(m_findBar);
+        action->setText(text);
+        action->setToolTip(tooltip);
+        button->setDefaultAction(action);
+        button->setAutoRaise(true);
+        return button;
+    };
+    auto *previous = new QAction(this);
+    previous->setObjectName(QStringLiteral("findPreviousButton"));
+    connect(previous, &QAction::triggered, this, &MainWindow::findPrevious);
+    auto *next = new QAction(this);
+    next->setObjectName(QStringLiteral("findNextButton"));
+    connect(next, &QAction::triggered, this, &MainWindow::findNext);
+    auto *close = new QAction(this);
+    close->setObjectName(QStringLiteral("closeFindButton"));
+    connect(close, &QAction::triggered, m_findBar, &QWidget::hide);
+    findRow->addWidget(toggleReplace);
+    findRow->addWidget(m_findText, 1);
+    findRow->addWidget(m_findCaseSensitive);
+    findRow->addWidget(makeActionButton(previous, QStringLiteral("↑"), tr("Previous Match")));
+    findRow->addWidget(makeActionButton(next, QStringLiteral("↓"), tr("Next Match")));
+    findRow->addWidget(makeActionButton(close, QStringLiteral("×"), tr("Close")));
+    panelLayout->addLayout(findRow);
+
+    m_replaceRow = new QWidget(m_findBar);
+    auto *replaceLayout = new QHBoxLayout(m_replaceRow);
+    replaceLayout->setContentsMargins(25, 0, 0, 0);
+    replaceLayout->setSpacing(4);
+    m_replaceText = new QLineEdit(m_replaceRow);
     m_replaceText->setObjectName(QStringLiteral("replaceText"));
     m_replaceText->setPlaceholderText(tr("Replace"));
-    m_replaceText->setMinimumWidth(180);
-    m_findCaseSensitive = new QCheckBox(tr("Match case"), m_findBar);
-    m_findCaseSensitive->setObjectName(QStringLiteral("findCaseSensitive"));
-    m_findBar->addWidget(m_findText);
-    auto *previous = m_findBar->addAction(tr("Previous"), this, &MainWindow::findPrevious);
-    previous->setObjectName(QStringLiteral("findPreviousButton"));
-    auto *next = m_findBar->addAction(tr("Next"), this, &MainWindow::findNext);
-    next->setObjectName(QStringLiteral("findNextButton"));
-    m_findBar->addSeparator();
-    m_findBar->addWidget(m_replaceText);
-    auto *replace = m_findBar->addAction(tr("Replace"), this, &MainWindow::replaceCurrent);
+    m_replaceText->setClearButtonEnabled(true);
+    auto *replace = new QAction(this);
     replace->setObjectName(QStringLiteral("replaceCurrentButton"));
-    auto *replaceEvery = m_findBar->addAction(tr("Replace All"), this, &MainWindow::replaceAll);
+    connect(replace, &QAction::triggered, this, &MainWindow::replaceCurrent);
+    auto *replaceEvery = new QAction(this);
     replaceEvery->setObjectName(QStringLiteral("replaceAllButton"));
-    m_findBar->addWidget(m_findCaseSensitive);
-    m_findBar->addSeparator();
-    m_findBar->addAction(tr("Close"), m_findBar, &QWidget::hide);
+    connect(replaceEvery, &QAction::triggered, this, &MainWindow::replaceAll);
+    replaceLayout->addWidget(m_replaceText, 1);
+    replaceLayout->addWidget(makeActionButton(replace, QStringLiteral("↪"), tr("Replace")));
+    replaceLayout->addWidget(makeActionButton(replaceEvery, QStringLiteral("⇉"), tr("Replace All")));
+    panelLayout->addWidget(m_replaceRow);
+    connect(toggleReplace, &QToolButton::toggled, this, [this, toggleReplace](bool visible) {
+        toggleReplace->setText(visible ? QStringLiteral("⌄") : QStringLiteral("›"));
+        setFindReplaceVisible(visible);
+    });
     connect(m_findText, &QLineEdit::returnPressed, this, &MainWindow::findNext);
     connect(m_replaceText, &QLineEdit::returnPressed, this, &MainWindow::replaceCurrent);
+    auto *escape = new QAction(m_findBar);
+    escape->setShortcut(QKeySequence(Qt::Key_Escape));
+    escape->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+    m_findBar->addAction(escape);
+    connect(escape, &QAction::triggered, m_findBar, &QWidget::hide);
+    m_replaceRow->hide();
     m_findBar->hide();
+}
+
+void MainWindow::positionFindBar()
+{
+    if (!m_findBar || !m_editorSplitter) return;
+    QTabWidget *tabs = m_activeTabs ? m_activeTabs : m_tabs;
+    if (!tabs) return;
+    const QPoint topRight = tabs->mapTo(m_editorSplitter, QPoint(tabs->width(), 0));
+    const int x = qMax(8, topRight.x() - m_findBar->width() - 12);
+    const int y = qMax(8, topRight.y() + (tabs->tabBar()->isVisible()
+        ? tabs->tabBar()->height() + 6 : 12));
+    m_findBar->adjustSize();
+    m_findBar->move(x, y);
+    m_findBar->raise();
+}
+
+void MainWindow::setFindReplaceVisible(bool visible)
+{
+    m_replaceRow->setVisible(visible);
+    m_findBar->adjustSize();
+    positionFindBar();
 }
 
 void MainWindow::showFind()
 {
+    if (!currentEditor()) return;
+    if (auto *toggle = m_findBar->findChild<QToolButton *>(
+            QStringLiteral("toggleReplaceButton"))) toggle->setChecked(false);
     m_findBar->show();
-    m_replaceText->setVisible(false);
-    for (QAction *action : m_findBar->actions()) {
-        if (action->text() == tr("Replace") || action->text() == tr("Replace All"))
-            action->setVisible(false);
-    }
+    setFindReplaceVisible(false);
     if (auto *editor = currentEditor(); editor && editor->textCursor().hasSelection())
         m_findText->setText(editor->textCursor().selectedText());
+    positionFindBar();
     m_findText->selectAll();
     m_findText->setFocus();
 }
@@ -600,11 +750,9 @@ void MainWindow::showFind()
 void MainWindow::showReplace()
 {
     showFind();
-    m_replaceText->setVisible(true);
-    for (QAction *action : m_findBar->actions()) {
-        if (action->text() == tr("Replace") || action->text() == tr("Replace All"))
-            action->setVisible(true);
-    }
+    if (!currentEditor()) return;
+    if (auto *toggle = m_findBar->findChild<QToolButton *>(
+            QStringLiteral("toggleReplaceButton"))) toggle->setChecked(true);
 }
 
 bool MainWindow::findText(bool backward)
@@ -714,6 +862,14 @@ void MainWindow::applyTheme()
             QLabel#gitAccountStatus, QLabel#gitSectionLabel { color: #57606a; font-size: 10px; font-weight: 600; }
             QToolButton#editorTabCloseButton { color: #57606a; background: transparent; border: 0; border-radius: 3px; padding: 0; font-size: 15px; font-weight: 400; }
             QToolButton#editorTabCloseButton:hover { color: #24292f; background: #d0d7de; }
+            QWidget#editorEmptyState { background: #ffffff; }
+            QLabel#editorEmptyTitle { color: #24292f; font-size: 18px; font-weight: 600; }
+            QLabel#editorEmptyDescription { color: #57606a; }
+            QWidget#editorEmptyState QPushButton { color: #0969da; background: transparent; border: 0; padding: 3px 8px; }
+            QWidget#editorEmptyState QPushButton:hover { color: #0550ae; text-decoration: underline; }
+            QFrame#findReplaceBar { background: #ffffff; border: 1px solid #d0d7de; border-radius: 5px; }
+            QFrame#findReplaceBar QLineEdit { background: #ffffff; }
+            QFrame#findReplaceBar QToolButton { min-width: 22px; min-height: 22px; }
             QDockWidget#terminalDock QToolButton#terminateTerminalButton { background: #cf222e; border: 0; border-radius: 3px; padding: 0; }
             QDockWidget#terminalDock QToolButton#terminateTerminalButton:hover { background: #a40e26; }
             QDockWidget#terminalDock QToolButton#terminateTerminalButton:disabled { background: #d8a4aa; }
@@ -752,6 +908,14 @@ void MainWindow::applyTheme()
         QToolButton#editorTabCloseButton { color: #8b949e; background: transparent; border: 0; border-radius: 3px; padding: 0; font-size: 15px; font-weight: 400; }
         QToolButton#editorTabCloseButton:hover { color: #ffffff; background: #30363d; }
         QToolButton#editorTabCloseButton:pressed { color: #ffffff; background: #484f58; }
+        QWidget#editorEmptyState { background: #0d1117; }
+        QLabel#editorEmptyTitle { color: #e6edf3; font-size: 18px; font-weight: 600; }
+        QLabel#editorEmptyDescription { color: #8b949e; }
+        QWidget#editorEmptyState QPushButton { color: #58a6ff; background: transparent; border: 0; padding: 3px 8px; }
+        QWidget#editorEmptyState QPushButton:hover { color: #79c0ff; text-decoration: underline; }
+        QFrame#findReplaceBar { background: #161b22; border: 1px solid #30363d; border-radius: 5px; }
+        QFrame#findReplaceBar QLineEdit { background: #0d1117; }
+        QFrame#findReplaceBar QToolButton { min-width: 22px; min-height: 22px; }
         QDockWidget#terminalDock QToolButton#terminateTerminalButton { background: #da3633; border: 0; border-radius: 3px; padding: 0; }
         QDockWidget#terminalDock QToolButton#terminateTerminalButton:hover { background: #f85149; }
         QDockWidget#terminalDock QToolButton#terminateTerminalButton:pressed { background: #b62324; }
@@ -836,6 +1000,10 @@ void MainWindow::configureEditorGroup(QTabWidget *tabs)
         fileTabs->setDropHandler([this, tabs](const QString &path) {
             moveEditorToGroup(path, tabs);
         });
+        fileTabs->setEmptyActions(
+            [this, tabs] { m_activeTabs = tabs; createFile(); },
+            [this, tabs] { m_activeTabs = tabs; chooseFile(); },
+            [this, tabs] { m_activeTabs = tabs; chooseProject(); });
     }
     connect(tabs, &QTabWidget::currentChanged, this, [this, tabs] {
         if (tabs->currentIndex() >= 0) m_activeTabs = tabs;
@@ -843,6 +1011,7 @@ void MainWindow::configureEditorGroup(QTabWidget *tabs)
         updateProblems(currentEditor());
         updateOutline(currentEditor());
         updateLanguageStatusWidgets();
+        if (m_findBar && m_findBar->isVisible()) positionFindBar();
     });
     connect(tabs->tabBar(), &QTabBar::tabBarClicked, this, [this, tabs] { m_activeTabs = tabs; });
     connect(tabs, &QTabWidget::tabCloseRequested, this,
@@ -935,6 +1104,40 @@ void MainWindow::chooseProject()
     if (!directory.isEmpty()) openProject(directory);
 }
 
+void MainWindow::closeProject()
+{
+    if (m_projectDirectory.isEmpty()) return;
+    for (QTabWidget *tabs : editorGroups())
+        for (int index = 0; index < tabs->count(); ++index)
+            if (!confirmCloseEditor(editorAt(tabs, index))) return;
+
+    for (QTabWidget *tabs : editorGroups()) {
+        while (tabs->count() > 0) {
+            QWidget *editor = tabs->widget(0);
+            tabs->removeTab(0);
+            editor->deleteLater();
+        }
+    }
+    if (m_secondaryTabs) {
+        m_secondaryTabs->deleteLater();
+        m_secondaryTabs = nullptr;
+    }
+    m_activeTabs = m_tabs;
+    m_projectDirectory.clear();
+    m_projectExplorer->clearRootPath();
+    if (m_projectSearch) m_projectSearch->setRootPath({});
+    if (m_extensionManager) m_extensionManager->notifyProjectChanged({});
+    if (m_closeProjectAction) m_closeProjectAction->setEnabled(false);
+    if (m_findBar) m_findBar->hide();
+    setWindowTitle(tr("Native Studio"));
+    updateRunAction();
+    updateProblems(nullptr);
+    updateOutline(nullptr);
+    if (m_cursorStatus) m_cursorStatus->clear();
+    updateLanguageStatusWidgets();
+    statusBar()->showMessage(tr("Folder closed"), 2500);
+}
+
 void MainWindow::openProject(const QString &directory)
 {
     const QFileInfo info(directory);
@@ -946,6 +1149,7 @@ void MainWindow::openProject(const QString &directory)
             terminal->setWorkingDirectory(m_projectDirectory);
     if (m_projectSearch) m_projectSearch->setRootPath(m_projectDirectory);
     m_extensionManager->notifyProjectChanged(m_projectDirectory);
+    if (m_closeProjectAction) m_closeProjectAction->setEnabled(true);
     setWindowTitle(tr("%1 — Native Studio").arg(info.fileName()));
     statusBar()->showMessage(tr("Opened project %1").arg(QDir::toNativeSeparators(m_projectDirectory)), 4000);
 }
@@ -1441,15 +1645,14 @@ void MainWindow::closeTabIn(QTabWidget *tabs, int index)
     if (!confirmCloseEditor(editor)) return;
     tabs->removeTab(index);
     editor->deleteLater();
-    if (tabs == m_secondaryTabs && tabs->count() == 0) {
-        tabs->hide();
-        tabs->deleteLater();
-        m_secondaryTabs = nullptr;
-        m_activeTabs = m_tabs;
-    }
-    if (m_tabs->count() == 0) {
-        m_activeTabs = m_tabs;
-        addEditor();
+    if (tabs->count() == 0) {
+        m_activeTabs = tabs;
+        if (m_findBar) m_findBar->hide();
+        updateRunAction();
+        updateProblems(nullptr);
+        updateOutline(nullptr);
+        if (m_cursorStatus) m_cursorStatus->clear();
+        updateLanguageStatusWidgets();
     }
 }
 
@@ -1473,10 +1676,6 @@ void MainWindow::moveEditorToGroup(const QString &path, QTabWidget *destination)
     installTabCloseButton(destination, destinationIndex);
     destination->setCurrentIndex(destinationIndex);
 
-    if (source->count() == 0) {
-        m_activeTabs = source;
-        addEditor();
-    }
     m_activeTabs = destination;
     editor->setFocus();
     updateRunAction();
@@ -1490,6 +1689,13 @@ void MainWindow::saveSession()
     const auto groups = editorGroups();
     for (int group = 0; group < groups.size(); ++group) {
         QTabWidget *tabs = groups.at(group);
+        if (tabs->count() == 0) {
+            QVariantMap emptyGroup;
+            emptyGroup.insert(QStringLiteral("group"), group);
+            emptyGroup.insert(QStringLiteral("emptyGroup"), true);
+            documents.push_back(emptyGroup);
+            continue;
+        }
         for (int index = 0; index < tabs->count(); ++index) {
             auto *editor = editorAt(tabs, index);
             if (!editor) continue;
@@ -1554,6 +1760,10 @@ void MainWindow::restoreNextSessionDocument()
         m_editorSplitter->addWidget(m_secondaryTabs);
     }
     m_activeTabs = group == 1 && m_secondaryTabs ? m_secondaryTabs : m_tabs;
+    if (document.value(QStringLiteral("emptyGroup")).toBool()) {
+        QTimer::singleShot(0, this, &MainWindow::restoreNextSessionDocument);
+        return;
+    }
     auto *editor = addEditor(document.value(QStringLiteral("title"), tr("Untitled")).toString());
     const QString path = document.value(QStringLiteral("path")).toString();
     if (!path.isEmpty() && QFileInfo::exists(path)) {
@@ -1587,6 +1797,15 @@ void MainWindow::closeEvent(QCloseEvent *event)
     settings.setValue(QStringLiteral("window/state"), saveState());
     settings.setValue(QStringLiteral("window/visibleExtensionViews"), visibleExtensionViews);
     event->accept();
+}
+
+bool MainWindow::eventFilter(QObject *watched, QEvent *event)
+{
+    if (watched == m_editorSplitter && event->type() == QEvent::Resize
+        && m_findBar && m_findBar->isVisible()) {
+        QTimer::singleShot(0, this, &MainWindow::positionFindBar);
+    }
+    return QMainWindow::eventFilter(watched, event);
 }
 
 void MainWindow::dragEnterEvent(QDragEnterEvent *event)

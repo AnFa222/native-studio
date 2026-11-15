@@ -247,6 +247,22 @@ void ProjectExplorer::setRootPath(const QString &directory)
     m_breadcrumb->setText(info.fileName());
 }
 
+void ProjectExplorer::clearRootPath()
+{
+    m_rootPath.clear();
+    m_workspaceLabel->setText(tr("NO FOLDER OPENED"));
+    m_workspaceLabel->setToolTip({});
+    m_tree->setVisible(false);
+    m_filter->clear();
+    m_filter->setVisible(false);
+    m_breadcrumb->clear();
+    m_breadcrumb->setVisible(false);
+    m_emptyState->setVisible(true);
+    m_openFolder->setVisible(false);
+    for (QToolButton *button : findChildren<QToolButton *>())
+        if (button->property("workspaceAction").toBool()) button->setVisible(false);
+}
+
 QString ProjectExplorer::rootPath() const { return m_rootPath; }
 QTreeView *ProjectExplorer::treeView() const { return m_tree; }
 QFileSystemModel *ProjectExplorer::model() const { return m_model; }

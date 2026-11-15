@@ -23,7 +23,6 @@ class QSplitter;
 class TerminalWidget;
 class QTreeView;
 class QToolButton;
-class QToolBar;
 class ProjectSearchWidget;
 struct ExplorerFileDecoration;
 
@@ -68,11 +67,13 @@ protected:
     void closeEvent(QCloseEvent *event) override;
     void dragEnterEvent(QDragEnterEvent *event) override;
     void dropEvent(QDropEvent *event) override;
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private slots:
     void createFile();
     void chooseFile();
     void chooseProject();
+    void closeProject();
     bool saveCurrentFile();
     bool saveCurrentFileAs();
     void closeTab(int index);
@@ -110,6 +111,8 @@ private:
     void updateTabTitle(CodeEditor *editor);
     void createActions();
     void createFindBar();
+    void positionFindBar();
+    void setFindReplaceVisible(bool visible);
     bool findText(bool backward);
     void applyTheme();
     void applySettings();
@@ -152,10 +155,12 @@ private:
     QDockWidget *m_searchDock = nullptr;
     ProjectSearchWidget *m_projectSearch = nullptr;
     QAction *m_runAction = nullptr;
-    QToolBar *m_findBar = nullptr;
+    QAction *m_closeProjectAction = nullptr;
+    QWidget *m_findBar = nullptr;
+    QWidget *m_replaceRow = nullptr;
     QLineEdit *m_findText = nullptr;
     QLineEdit *m_replaceText = nullptr;
-    QCheckBox *m_findCaseSensitive = nullptr;
+    QToolButton *m_findCaseSensitive = nullptr;
     QMenu *m_extensionsMenu = nullptr;
     QLabel *m_cursorStatus = nullptr;
     struct LanguageStatusItem {

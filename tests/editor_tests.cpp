@@ -133,6 +133,7 @@ private slots:
     void autoIndentsUsingLanguagePlugins();
     void problemsPanelTracksDiagnostics();
     void nativeWorkspaceFeaturesAreLazyAndAvailable();
+    void closingLastFileShowsEmptyEditorState();
     void findAndReplaceCurrentDocument();
     void autoSaveWritesNamedFiles();
     void restoresExtensionDockLayoutAfterDeferredLoad();
@@ -602,11 +603,16 @@ void EditorTests::extensionManagerShowsManifestControls()
     auto *import = dialog.findChild<QPushButton *>(QStringLiteral("importExtensionManifest"));
     auto *toggle = dialog.findChild<QPushButton *>(QStringLiteral("toggleExtension"));
     auto *remove = dialog.findChild<QPushButton *>(QStringLiteral("removeExtension"));
+    auto *install = dialog.findChild<QPushButton *>(QStringLiteral("installExtensionButton"));
+    auto *refreshStore = dialog.findChild<QPushButton *>(
+        QStringLiteral("refreshExtensionCatalog"));
     QVERIFY(search != nullptr);
     QVERIFY(table != nullptr);
     QVERIFY(import != nullptr);
     QVERIFY(toggle != nullptr);
     QVERIFY(remove != nullptr);
+    QVERIFY(install != nullptr);
+    QVERIFY(refreshStore != nullptr);
     QCOMPARE(table->columnCount(), 6);
     QVERIFY(table->rowCount() >= 2);
     int bundledRow = -1;
@@ -1167,8 +1173,9 @@ void EditorTests::nativeWorkspaceFeaturesAreLazyAndAvailable()
     QVERIFY(git->permissions.contains(QStringLiteral("process.execute")));
     QVERIFY(window.extensionManager()->viewIds().contains(QStringLiteral("git.sourceControl")));
 
-    auto *editor = qobject_cast<CodeEditor *>(
-        window.findChild<QTabWidget *>(QStringLiteral("secondaryEditorTabs"))->currentWidget());
+    auto *secondary = window.findChild<QTabWidget *>(QStringLiteral("secondaryEditorTabs"));
+    auto *editor = qobject_cast<CodeEditor *>(secondary ? secondary->currentWidget() : nullptr);
+    if (!editor) editor = qobject_cast<CodeEditor *>(window.editorTabs()->currentWidget());
     QVERIFY(editor != nullptr);
     editor->appendPlainText(QStringLiteral("# unsaved session text"));
     QVERIFY(window.close());
@@ -1197,11 +1204,19 @@ void EditorTests::nativeWorkspaceFeaturesAreLazyAndAvailable()
 void EditorTests::findAndReplaceCurrentDocument()
 {
     MainWindow window;
+    window.show();
+    QCoreApplication::processEvents();
     auto *editor = qobject_cast<CodeEditor *>(window.editorTabs()->currentWidget());
     QVERIFY(editor != nullptr);
     editor->setPlainText(QStringLiteral("one two one"));
     editor->moveCursor(QTextCursor::Start);
     window.findChild<QAction *>(QStringLiteral("replaceAction"))->trigger();
+    auto *popup = window.findChild<QWidget *>(QStringLiteral("findReplaceBar"));
+    auto *replaceRow = window.findChild<QWidget *>(QStringLiteral("replaceText"))->parentWidget();
+    QVERIFY(popup != nullptr);
+    QVERIFY(!popup->isHidden());
+    QVERIFY(!replaceRow->isHidden());
+    QVERIFY(popup->geometry().right() <= window.editorTabs()->geometry().right());
     auto *find = window.findChild<QLineEdit *>(QStringLiteral("findText"));
     auto *replace = window.findChild<QLineEdit *>(QStringLiteral("replaceText"));
     QVERIFY(find != nullptr);
@@ -1213,6 +1228,34 @@ void EditorTests::findAndReplaceCurrentDocument()
     window.findChild<QAction *>(QStringLiteral("replaceCurrentButton"))->trigger();
     window.findChild<QAction *>(QStringLiteral("replaceAllButton"))->trigger();
     QCOMPARE(editor->toPlainText(), QStringLiteral("three two three"));
+    QTest::keyClick(find, Qt::Key_Escape);
+    QVERIFY(popup->isHidden());
+}
+
+void EditorTests::closingLastFileShowsEmptyEditorState()
+{
+    ApplicationSettingsGuard applicationSettings;
+    MainWindow window;
+    auto *closeButton = qobject_cast<QToolButton *>(
+        window.editorTabs()->tabBar()->tabButton(0, QTabBar::RightSide));
+    QVERIFY(closeButton != nullptr);
+    QTest::mouseClick(closeButton, Qt::LeftButton);
+    QCOMPARE(window.editorTabs()->count(), 0);
+    auto *empty = window.findChild<QWidget *>(QStringLiteral("editorEmptyState"));
+    QVERIFY(empty != nullptr);
+    QVERIFY(!empty->isHidden());
+
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    window.openProject(directory.path());
+    auto *closeFolder = window.findChild<QAction *>(QStringLiteral("closeProjectAction"));
+    QVERIFY(closeFolder != nullptr);
+    QVERIFY(closeFolder->isEnabled());
+    closeFolder->trigger();
+    QVERIFY(window.projectDirectory().isEmpty());
+    QVERIFY(window.projectTree()->isHidden());
+    QVERIFY(!closeFolder->isEnabled());
+    QCOMPARE(window.editorTabs()->count(), 0);
 }
 
 void EditorTests::autoSaveWritesNamedFiles()

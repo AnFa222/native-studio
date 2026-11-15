@@ -29,6 +29,7 @@ public:
     explicit ProjectExplorer(QWidget *parent = nullptr);
 
     void setRootPath(const QString &directory);
+    void clearRootPath();
     [[nodiscard]] QString rootPath() const;
     [[nodiscard]] QTreeView *treeView() const;
     [[nodiscard]] QFileSystemModel *model() const;
