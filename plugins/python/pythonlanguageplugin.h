@@ -4,6 +4,10 @@
 
 #include <QObject>
 
+#include <optional>
+
+class QProcess;
+
 class PythonLanguagePlugin final : public QObject, public LanguagePlugin
 {
     Q_OBJECT
@@ -11,10 +15,20 @@ class PythonLanguagePlugin final : public QObject, public LanguagePlugin
     Q_INTERFACES(LanguagePlugin)
 
 public:
+    ~PythonLanguagePlugin() override;
+    void shutdown() override;
     [[nodiscard]] QString languageName() const override;
     [[nodiscard]] QStringList fileExtensions() const override;
     QSyntaxHighlighter *createHighlighter(QTextDocument *document) override;
     [[nodiscard]] RunConfiguration runConfiguration(const QString &filePath) const override;
     [[nodiscard]] QStringList completionItems(const QString &documentText) const override;
     [[nodiscard]] QList<CodeDiagnostic> diagnostics(const QString &documentText) const override;
+
+private:
+    [[nodiscard]] bool ensureAnalyzerRunning() const;
+    [[nodiscard]] std::optional<QList<CodeDiagnostic>>
+        analyzerDiagnostics(const QString &documentText) const;
+
+    mutable QProcess *m_analyzerProcess = nullptr;
+    mutable bool m_analyzerUnavailable = false;
 };

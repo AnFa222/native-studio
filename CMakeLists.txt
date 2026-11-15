@@ -3,7 +3,7 @@ if(POLICY CMP0141)
     cmake_policy(SET CMP0141 NEW)
 endif()
 
-project(NativeStudio VERSION 0.5.0 LANGUAGES CXX)
+project(NativeStudio VERSION 0.6.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -75,6 +75,11 @@ qt_add_plugin(language_python MODULE
     plugins/python/pythonhighlighter.h
     plugins/python/pythonplugin.json
     src/languageplugin.h
+)
+qt_add_resources(language_python "python_analyzer"
+    PREFIX "/native_studio/python"
+    BASE "plugins/python"
+    FILES plugins/python/analyzer.py
 )
 target_include_directories(language_python PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"

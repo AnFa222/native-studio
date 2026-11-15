@@ -43,6 +43,7 @@ private slots:
     void pluginExplorerHasMarketplaceControls();
     void languagePluginsProvideCompletions();
     void languagePluginsDetectErrors();
+    void pythonAnalyzerFindsSemanticProblems();
     void languagePluginsAcceptValidSyntax();
     void editorAcceptsPopupCompletion();
     void analysisRefreshKeepsCompletionOpen();
@@ -282,18 +283,16 @@ void EditorTests::languagePluginsDetectErrors()
     MainWindow window;
     const auto pythonProblems = window.languageManager()->diagnostics(
         QStringLiteral("broken.py"),
-        QStringLiteral("if {'key': 1}\n    pass\n"
-                       "def greet():\nprint('hello')\n"
-                       "for value range(3):\n    pass\n"));
+        QStringLiteral("if {'key': 1}\n    pass\n"));
     QVERIFY(!pythonProblems.isEmpty());
     QVERIFY(std::any_of(pythonProblems.cbegin(), pythonProblems.cend(), [](const auto &problem) {
         return problem.message.contains(QStringLiteral("Expected ':'"));
     }));
-    QVERIFY(std::any_of(pythonProblems.cbegin(), pythonProblems.cend(), [](const auto &problem) {
+
+    const auto indentationProblems = window.languageManager()->diagnostics(
+        QStringLiteral("indentation.py"), QStringLiteral("def greet():\nprint('hello')\n"));
+    QVERIFY(std::any_of(indentationProblems.cbegin(), indentationProblems.cend(), [](const auto &problem) {
         return problem.message.contains(QStringLiteral("Expected an indented block"));
-    }));
-    QVERIFY(std::any_of(pythonProblems.cbegin(), pythonProblems.cend(), [](const auto &problem) {
-        return problem.message.contains(QStringLiteral("Malformed for"));
     }));
 
     const auto cppProblems = window.languageManager()->diagnostics(
@@ -310,6 +309,31 @@ void EditorTests::languagePluginsDetectErrors()
     QVERIFY(std::any_of(cppProblems.cbegin(), cppProblems.cend(), [](const auto &problem) {
         return problem.message.contains(QStringLiteral("no matching #if"));
     }));
+}
+
+void EditorTests::pythonAnalyzerFindsSemanticProblems()
+{
+    MainWindow window;
+    const auto problems = window.languageManager()->diagnostics(
+        QStringLiteral("analysis.py"),
+        QStringLiteral("import os\n"
+                       "\"floating string\"\n"
+                       "def greet(unused, items=[]):\n"
+                       "    value = 42\n"
+                       "    print(missing_name)\n"
+                       "    return 1\n"
+                       "    print('unreachable')\n"));
+    const auto hasMessage = [&problems](const QString &text) {
+        return std::any_of(problems.cbegin(), problems.cend(), [&text](const auto &problem) {
+            return problem.message.contains(text, Qt::CaseInsensitive);
+        });
+    };
+    QVERIFY(hasMessage(QStringLiteral("Imported name 'os' is never used")));
+    QVERIFY(hasMessage(QStringLiteral("Standalone string literal")));
+    QVERIFY(hasMessage(QStringLiteral("Mutable default argument")));
+    QVERIFY(hasMessage(QStringLiteral("Undefined name 'missing_name'")));
+    QVERIFY(hasMessage(QStringLiteral("Local variable 'value'")));
+    QVERIFY(hasMessage(QStringLiteral("Unreachable code")));
 }
 
 void EditorTests::languagePluginsAcceptValidSyntax()

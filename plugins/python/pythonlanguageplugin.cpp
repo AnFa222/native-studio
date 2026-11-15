@@ -3,8 +3,15 @@
 #include "pythonhighlighter.h"
 
 #include <QFileInfo>
+#include <QFile>
+#include <QElapsedTimer>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QProcess>
 #include <QRegularExpression>
 #include <QSet>
+#include <QStandardPaths>
 
 namespace {
 struct Delimiter
@@ -146,6 +153,111 @@ int topLevelColon(const QString &line)
 }
 }
 
+PythonLanguagePlugin::~PythonLanguagePlugin()
+{
+    shutdown();
+}
+
+void PythonLanguagePlugin::shutdown()
+{
+    if (!m_analyzerProcess || m_analyzerProcess->state() == QProcess::NotRunning) return;
+    m_analyzerProcess->closeWriteChannel();
+    m_analyzerProcess->terminate();
+    if (!m_analyzerProcess->waitForFinished(150)) {
+        m_analyzerProcess->kill();
+        m_analyzerProcess->waitForFinished(150);
+    }
+}
+
+bool PythonLanguagePlugin::ensureAnalyzerRunning() const
+{
+    if (m_analyzerUnavailable) return false;
+    if (m_analyzerProcess && m_analyzerProcess->state() == QProcess::Running) return true;
+
+    QFile scriptFile(QStringLiteral(":/native_studio/python/analyzer.py"));
+    if (!scriptFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        m_analyzerUnavailable = true;
+        return false;
+    }
+    const QString script = QString::fromUtf8(scriptFile.readAll());
+    if (!m_analyzerProcess)
+        m_analyzerProcess = new QProcess(const_cast<PythonLanguagePlugin *>(this));
+
+#ifdef Q_OS_WIN
+    const QStringList candidates{QStringLiteral("python"), QStringLiteral("python3"),
+                                 QStringLiteral("py")};
+#else
+    const QStringList candidates{QStringLiteral("python3"), QStringLiteral("python")};
+#endif
+    for (const QString &candidate : candidates) {
+        const QString executable = QStandardPaths::findExecutable(candidate);
+        if (executable.isEmpty()) continue;
+        QStringList arguments;
+        if (QFileInfo(executable).completeBaseName().compare(QStringLiteral("py"),
+                                                             Qt::CaseInsensitive) == 0)
+            arguments.push_back(QStringLiteral("-3"));
+        arguments << QStringLiteral("-u") << QStringLiteral("-c") << script;
+        m_analyzerProcess->setProgram(executable);
+        m_analyzerProcess->setArguments(arguments);
+        m_analyzerProcess->setProcessChannelMode(QProcess::SeparateChannels);
+        m_analyzerProcess->start();
+        if (m_analyzerProcess->waitForStarted(700)) return true;
+        m_analyzerProcess->close();
+    }
+    m_analyzerUnavailable = true;
+    return false;
+}
+
+std::optional<QList<CodeDiagnostic>>
+PythonLanguagePlugin::analyzerDiagnostics(const QString &documentText) const
+{
+    if (!ensureAnalyzerRunning()) return std::nullopt;
+    const auto analyzerFailure = [this]() -> std::optional<QList<CodeDiagnostic>> {
+        m_analyzerUnavailable = true;
+        const_cast<PythonLanguagePlugin *>(this)->shutdown();
+        return std::nullopt;
+    };
+
+    QJsonObject request;
+    request.insert(QStringLiteral("source"), documentText);
+    QByteArray payload = QJsonDocument(request).toJson(QJsonDocument::Compact);
+    payload.append('\n');
+    if (m_analyzerProcess->write(payload) != payload.size()
+        || !m_analyzerProcess->waitForBytesWritten(300)) return analyzerFailure();
+
+    QElapsedTimer timer;
+    timer.start();
+    while (!m_analyzerProcess->canReadLine() && timer.elapsed() < 1200) {
+        if (m_analyzerProcess->state() == QProcess::NotRunning) break;
+        m_analyzerProcess->waitForReadyRead(50);
+    }
+    if (!m_analyzerProcess->canReadLine()) return analyzerFailure();
+
+    QJsonParseError parseError;
+    const QJsonDocument response = QJsonDocument::fromJson(
+        m_analyzerProcess->readLine().trimmed(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !response.isArray())
+        return analyzerFailure();
+
+    QList<CodeDiagnostic> diagnostics;
+    const QJsonArray entries = response.array();
+    diagnostics.reserve(entries.size());
+    for (const QJsonValue &value : entries) {
+        const QJsonObject entry = value.toObject();
+        const QString message = entry.value(QStringLiteral("message")).toString();
+        if (message.startsWith(QStringLiteral("Python analyzer failed:"))) return analyzerFailure();
+        diagnostics.push_back({
+            entry.value(QStringLiteral("line")).toInt(),
+            entry.value(QStringLiteral("column")).toInt(),
+            qMax(1, entry.value(QStringLiteral("length")).toInt(1)),
+            entry.value(QStringLiteral("severity")).toString() == QStringLiteral("error")
+                ? DiagnosticSeverity::Error : DiagnosticSeverity::Warning,
+            message
+        });
+    }
+    return diagnostics;
+}
+
 QString PythonLanguagePlugin::languageName() const
 {
     return QStringLiteral("Python");
@@ -165,8 +277,13 @@ RunConfiguration PythonLanguagePlugin::runConfiguration(const QString &filePath)
 {
     RunConfiguration configuration;
 #ifdef Q_OS_WIN
-    configuration.program = QStringLiteral("py");
-    configuration.arguments = {QStringLiteral("-3"), QFileInfo(filePath).absoluteFilePath()};
+    configuration.program = QStandardPaths::findExecutable(QStringLiteral("python"));
+    if (configuration.program.isEmpty()) {
+        configuration.program = QStringLiteral("py");
+        configuration.arguments = {QStringLiteral("-3"), QFileInfo(filePath).absoluteFilePath()};
+    } else {
+        configuration.arguments = {QFileInfo(filePath).absoluteFilePath()};
+    }
 #else
     configuration.program = QStringLiteral("python3");
     configuration.arguments = {QFileInfo(filePath).absoluteFilePath()};
@@ -209,6 +326,8 @@ QStringList PythonLanguagePlugin::completionItems(const QString &documentText) c
 
 QList<CodeDiagnostic> PythonLanguagePlugin::diagnostics(const QString &documentText) const
 {
+    if (const auto diagnostics = analyzerDiagnostics(documentText)) return *diagnostics;
+
     QList<CodeDiagnostic> result;
     QList<Delimiter> delimiters;
     bool comment = false;

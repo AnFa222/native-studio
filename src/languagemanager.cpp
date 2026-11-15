@@ -18,7 +18,10 @@ LanguageManager::LanguageManager(QObject *parent)
 {
 }
 
-LanguageManager::~LanguageManager() = default;
+LanguageManager::~LanguageManager()
+{
+    for (const auto &loaded : m_plugins) loaded.plugin->shutdown();
+}
 
 int LanguageManager::loadPlugins(const QString &directory, bool bundled)
 {

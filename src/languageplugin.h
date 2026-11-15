@@ -37,6 +37,8 @@ class LanguagePlugin
 public:
     virtual ~LanguagePlugin() = default;
 
+    virtual void shutdown() {}
+
     [[nodiscard]] virtual QString languageName() const = 0;
     [[nodiscard]] virtual QStringList fileExtensions() const = 0;
     virtual QSyntaxHighlighter *createHighlighter(QTextDocument *document) = 0;
@@ -57,5 +59,5 @@ public:
     }
 };
 
-#define LanguagePlugin_iid "dev.nativestudio.LanguagePlugin/2.0"
+#define LanguagePlugin_iid "dev.nativestudio.LanguagePlugin/3.0"
 Q_DECLARE_INTERFACE(LanguagePlugin, LanguagePlugin_iid)
